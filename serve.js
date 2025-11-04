@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const app = express();
 
 require('dotenv').config();
@@ -131,4 +132,6 @@ async function fromOpenFoodFacts(code){
     panel: null,
     source: 'OFF'
   };
+
+  mongoose.connect() 
 }
