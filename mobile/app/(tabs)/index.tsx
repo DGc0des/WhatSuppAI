@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Button, Platform, ScrollView, StyleSheet, Text, View, Image } from 'react-native';
+import { ActivityIndicator, Button, ScrollView, StyleSheet, Text, View, Image, Alert, TouchableOpacity } from 'react-native';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { identify } from '../../lib/api';
 import { saveScannedSupplement } from '../../lib/storage';
+import { signOut } from '../../lib/auth';
 
 
 import { Redirect } from 'expo-router';
@@ -50,6 +51,14 @@ export default function Home() {
       const sym = mapType(type);
       const raw = String(data);
       const json = await identify({ raw, symbology: sym });
+
+      console.log('[Scanner] API Response:', {
+        found: json?.found,
+        hasAnalysis: !!json?.analysis,
+        hasRating: !!json?.rating,
+        hasScores: !!json?.scores,
+      });
+
       setIdentifyOut(json);
       setStatusText(`lookup done (found=${json?.found})`);
 
@@ -61,6 +70,8 @@ export default function Home() {
           brand: json.doc.brand || 'N/A',
           image: json.doc.images?.[0],
           analysis: json.analysis,
+          rating: json.rating,
+          scores: json.scores,
         });
       }
     } catch (e: any) {
@@ -76,8 +87,33 @@ export default function Home() {
 
   return (
     <ScrollView contentContainerStyle={styles.scrollContainer}>
-      <Text style={styles.h1}>Supp Scanner</Text>
-      <Text style={styles.status}>{statusText}</Text>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.h1}>Supp Scanner</Text>
+          <Text style={styles.status}>{statusText}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.signOutButton}
+          onPress={async () => {
+            Alert.alert(
+              'Sign Out',
+              'Are you sure you want to sign out?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Sign Out',
+                  style: 'destructive',
+                  onPress: async () => {
+                    await signOut();
+                  }
+                }
+              ]
+            );
+          }}
+        >
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.scannerBox}>
         <CameraView
@@ -159,9 +195,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     gap: 8,
   },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   h1: { fontSize: 20, fontWeight: '700' },
   h2: { fontSize: 16, fontWeight: '600', marginTop: 12 },
   status: { color: '#555' },
+  signOutButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dc3545',
+    borderRadius: 8,
+  },
+  signOutText: {
+    color: '#dc3545',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   scannerBox: { height: 320, borderRadius: 12, overflow: 'hidden', backgroundColor: '#000' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 6 },
   tip: { fontSize: 12, color: '#777', marginTop: 8 },

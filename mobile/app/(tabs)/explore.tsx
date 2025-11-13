@@ -6,6 +6,7 @@ import { getAllScannedSupplements, deleteScannedSupplement, type ScannedSuppleme
 export default function HistoryScreen() {
   const [supplements, setSupplements] = useState<ScannedSupplement[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const loadSupplements = async () => {
     const data = await getAllScannedSupplements();
@@ -24,48 +25,115 @@ export default function HistoryScreen() {
     setRefreshing(false);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: number) => {
     await deleteScannedSupplement(id);
     await loadSupplements();
   };
 
-  const renderItem = ({ item }: { item: ScannedSupplement }) => (
-    <View style={styles.card}>
-      <View style={styles.cardContent}>
-        {item.image && (
-          <Image
-            source={{ uri: item.image }}
-            style={styles.thumbnail}
-            resizeMode="contain"
-          />
-        )}
-        <View style={styles.info}>
-          <Text style={styles.name}>{item.name}</Text>
-          <Text style={styles.brand}>{item.brand}</Text>
-          <Text style={styles.date}>
-            {new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString()}
-          </Text>
-          {item.analysis && (
-            <Text style={styles.analysis} numberOfLines={2}>
-              {item.analysis}
-            </Text>
-          )}
+  const renderScoreBar = (label: string, score: number | undefined) => {
+    if (score == null) return null;
+    return (
+      <View style={styles.scoreRow}>
+        <Text style={styles.scoreLabel}>{label}</Text>
+        <View style={styles.scoreBarContainer}>
+          <View style={[styles.scoreBarFill, { width: `${score}%`, backgroundColor: getColorForScore(score) }]} />
         </View>
+        <Text style={styles.scoreValue}>{score}</Text>
       </View>
+    );
+  };
+
+  const getColorForScore = (score: number) => {
+    if (score >= 80) return '#28a745';
+    if (score >= 60) return '#ffc107';
+    if (score >= 40) return '#fd7e14';
+    return '#dc3545';
+  };
+
+  const renderItem = ({ item }: { item: ScannedSupplement }) => {
+    const isExpanded = expandedId === item.id;
+
+    return (
       <TouchableOpacity
-        style={styles.deleteButton}
-        onPress={() => handleDelete(item.id)}
+        style={styles.card}
+        onPress={() => setExpandedId(isExpanded ? null : item.id)}
+        activeOpacity={0.7}
       >
-        <Text style={styles.deleteText}>Delete</Text>
+        {/* Rating Badge at top right */}
+        {item.rating != null && (
+          <View style={[styles.ratingBadge, getRatingColor(item.rating)]}>
+            <Text style={styles.ratingText}>{item.rating}</Text>
+          </View>
+        )}
+
+        <View style={styles.cardContent}>
+          {item.image && (
+            <Image
+              source={{ uri: item.image }}
+              style={styles.thumbnail}
+              resizeMode="contain"
+            />
+          )}
+          <View style={styles.info}>
+            <Text style={styles.name} numberOfLines={isExpanded ? undefined : 2}>
+              {item.name}
+            </Text>
+            <Text style={styles.brand}>{item.brand}</Text>
+            <Text style={styles.date}>
+              {new Date(item.created_at).toLocaleDateString()}
+            </Text>
+          </View>
+        </View>
+
+        {/* Expanded Details */}
+        {isExpanded && (
+          <>
+            {/* Detailed Scores */}
+            {item.scores && (
+              <View style={styles.scoresContainer}>
+                <Text style={styles.scoresTitle}>Detailed Scores</Text>
+                {renderScoreBar('Effectiveness', item.scores.effectiveness)}
+                {renderScoreBar('Quality & Purity', item.scores.quality)}
+                {renderScoreBar('Safety', item.scores.safety)}
+                {renderScoreBar('Value', item.scores.value)}
+                {renderScoreBar('Satisfaction', item.scores.satisfaction)}
+                {renderScoreBar('Taste', item.scores.taste)}
+              </View>
+            )}
+
+            {item.analysis && (
+              <View style={styles.analysisContainer}>
+                <Text style={styles.analysisTitle}>Analysis</Text>
+                <Text style={styles.analysis}>{item.analysis}</Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={(e) => {
+                e.stopPropagation();
+                handleDelete(item.id);
+              }}
+            >
+              <Text style={styles.deleteText}>Delete</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </TouchableOpacity>
-    </View>
-  );
+    );
+  };
+
+  const getRatingColor = (rating: number) => {
+    if (rating >= 80) return { backgroundColor: '#28a745' }; // Green
+    if (rating >= 60) return { backgroundColor: '#ffc107' }; // Yellow
+    if (rating >= 40) return { backgroundColor: '#fd7e14' }; // Orange
+    return { backgroundColor: '#dc3545' }; // Red
+  };
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Scan History</Text>
-        <Text style={styles.subtitle}>{supplements.length} supplements scanned</Text>
       </View>
       {supplements.length === 0 ? (
         <View style={styles.emptyContainer}>
@@ -75,7 +143,7 @@ export default function HistoryScreen() {
       ) : (
         <FlatList
           data={supplements}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => String(item.id)}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           refreshControl={
@@ -103,11 +171,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#6c757d',
   },
   list: {
     padding: 16,
@@ -115,8 +178,8 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    padding: 12,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: '#dee2e6',
     shadowColor: '#000',
@@ -124,40 +187,111 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
+    position: 'relative',
   },
   cardContent: {
     flexDirection: 'row',
-    marginBottom: 12,
   },
   thumbnail: {
-    width: 80,
-    height: 80,
+    width: 60,
+    height: 60,
     borderRadius: 8,
     backgroundColor: '#f8f9fa',
   },
   info: {
     flex: 1,
     marginLeft: 12,
+    justifyContent: 'center',
+  },
+  scoresContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+  },
+  scoresTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#333',
+  },
+  scoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  scoreLabel: {
+    fontSize: 12,
+    color: '#6c757d',
+    width: 100,
+    fontWeight: '500',
+  },
+  scoreBarContainer: {
+    flex: 1,
+    height: 8,
+    backgroundColor: '#e9ecef',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginHorizontal: 8,
+  },
+  scoreBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  scoreValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#333',
+    width: 30,
+    textAlign: 'right',
+  },
+  analysisContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+  },
+  analysisTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 6,
+    color: '#333',
   },
   name: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    marginBottom: 4,
+    marginBottom: 2,
+    paddingRight: 50,
+  },
+  ratingBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ratingText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
   brand: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#6c757d',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   date: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#adb5bd',
-    marginBottom: 6,
   },
   analysis: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#495057',
-    lineHeight: 16,
+    lineHeight: 18,
   },
   deleteButton: {
     backgroundColor: '#dc3545',

@@ -49,55 +49,124 @@ app.post('/gpt', async (req, res) => {
 
 app.post('/identify', async (req, res) => {
   try {
+    console.log('[/identify] Request received');
     const { barcode } = req.body || {};
     const norm = normalizeBarcode(barcode?.raw, barcode?.symbology);
     if (!norm.valid) return res.status(400).json({ ok:false, error:'Invalid barcode' });
 
+    console.log('[/identify] Fetching from OpenFoodFacts...');
     let doc = await fromOpenFoodFacts(norm.ean13 || norm.upcA);
-    // fallback logic here...
+    console.log('[/identify] OpenFoodFacts result:', doc ? 'Found' : 'Not found');
 
     let gptText = null;
+    let rating = null;
+    let scores = null;
+
     if (doc) {
-  const prompt = `
-Analyze this supplement for safety, effectiveness, and common usage.
+      console.log('[/identify] Calling GPT for analysis...');
+      const prompt = `
+Analyze this supplement and provide detailed scores.
 
 Name: ${doc.name || doc.product_name}
 Brand: ${doc.brand || doc.brands}
 Ingredients: ${doc.ingredientsText || doc.ingredients_text}
-Nutritional info: ${JSON.stringify(doc.nutriments || {}, null, 2)}`;
-  gptText = await askGPT(prompt);
-}
+Nutritional info: ${JSON.stringify(doc.nutriments || {}, null, 2)}
 
+Provide scores (0-100) for each category and an overall analysis.
+Format your response EXACTLY as follows:
+Overall Rating: [number 0-100]
+Evidence-Based Effectiveness: [number 0-100]
+Ingredient Quality & Purity: [number 0-100]
+Safety & Side-Effect Risk: [number 0-100]
+Value for Money: [number 0-100]
+User Results & Satisfaction: [number 0-100]
+Taste: [number 0-100]
+Analysis: [2-3 sentence summary of the supplement]`;
+      const gptResponse = await askGPT(prompt);
+
+      // Extract all scores and analysis from GPT response
+      const overallRatingMatch = gptResponse?.match(/Overall Rating:\s*(\d+(?:\.\d+)?)/i);
+      const effectivenessMatch = gptResponse?.match(/Evidence-Based Effectiveness:\s*(\d+(?:\.\d+)?)/i);
+      const qualityMatch = gptResponse?.match(/Ingredient Quality & Purity:\s*(\d+(?:\.\d+)?)/i);
+      const safetyMatch = gptResponse?.match(/Safety & Side-Effect Risk:\s*(\d+(?:\.\d+)?)/i);
+      const valueMatch = gptResponse?.match(/Value for Money:\s*(\d+(?:\.\d+)?)/i);
+      const satisfactionMatch = gptResponse?.match(/User Results & Satisfaction:\s*(\d+(?:\.\d+)?)/i);
+      const tasteMatch = gptResponse?.match(/Taste:\s*(\d+(?:\.\d+)?)/i);
+      const analysisMatch = gptResponse?.match(/Analysis:\s*(.+)/is);
+
+      rating = overallRatingMatch ? Math.round(parseFloat(overallRatingMatch[1])) : null;
+      scores = {
+        effectiveness: effectivenessMatch ? Math.round(parseFloat(effectivenessMatch[1])) : null,
+        quality: qualityMatch ? Math.round(parseFloat(qualityMatch[1])) : null,
+        safety: safetyMatch ? Math.round(parseFloat(safetyMatch[1])) : null,
+        value: valueMatch ? Math.round(parseFloat(valueMatch[1])) : null,
+        satisfaction: satisfactionMatch ? Math.round(parseFloat(satisfactionMatch[1])) : null,
+        taste: tasteMatch ? Math.round(parseFloat(tasteMatch[1])) : null,
+      };
+      gptText = analysisMatch ? analysisMatch[1].trim() : gptResponse;
+      console.log('[/identify] GPT analysis complete, rating:', rating, 'scores:', scores);
+    }
+
+    console.log('[/identify] Sending response');
     res.json({
       ok: true,
       normalized: norm,
       found: !!doc,
       doc: doc || null,
       analysis: gptText || 'No analysis available.',
+      rating: rating,
+      scores: doc ? scores : null,
     });
   } catch (e) {
+    console.error('[/identify] Error:', e.message);
     res.status(500).json({ ok:false, error:e.message });
   }
 });
 
-// helper function that calls your GPT API
+// helper function that calls your GPT API with timeout
 async function askGPT(prompt) {
-  const r = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: 'You are a supplement analysis assistant. Be concise and factual. Provide one paragraph analysis. Rate this supplement on a scale of 0 to 100' },
-        { role: 'user', content: prompt }
-      ]
-    })
-  });
-  const data = await r.json();
-  return data.choices?.[0]?.message?.content ?? null;
+  try {
+    console.log('[askGPT] Starting GPT request...');
+
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'You are a supplement analysis assistant. Be concise and factual. Provide one paragraph analysis. Rate this supplement on a scale of 0 to 100' },
+          { role: 'user', content: prompt }
+        ]
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!r.ok) {
+      const errorText = await r.text();
+      console.error('[askGPT] OpenAI API error:', r.status, errorText);
+      return null;
+    }
+
+    const data = await r.json();
+    console.log('[askGPT] GPT response received');
+    return data.choices?.[0]?.message?.content ?? null;
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error('[askGPT] Request timed out after 15 seconds');
+    } else {
+      console.error('[askGPT] Error calling GPT:', error.message);
+    }
+    return null;
+  }
 }
 
 function normalizeBarcode(raw, sym) {
