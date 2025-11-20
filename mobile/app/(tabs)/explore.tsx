@@ -1,9 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl } from 'react-native';
+import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { getAllScannedSupplements, deleteScannedSupplement, type ScannedSupplement } from '../../lib/storage';
+import { addScheduledSupplement } from '../../lib/scheduleStorage';
 
 export default function HistoryScreen() {
+  const router = useRouter();
   const [supplements, setSupplements] = useState<ScannedSupplement[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -28,6 +31,139 @@ export default function HistoryScreen() {
   const handleDelete = async (id: number) => {
     await deleteScannedSupplement(id);
     await loadSupplements();
+  };
+
+  const handleSchedule = async (supplementId: number, supplementName: string) => {
+    Alert.prompt(
+      'Schedule Supplement',
+      `When would you like to take ${supplementName}?\n\nEnter date and time (YYYY-MM-DD HH:MM)`,
+      async (text) => {
+        if (!text) return;
+
+        try {
+          // Validate format and create ISO string
+          const dateTimeStr = text.trim();
+          const isoDateTime = dateTimeStr.includes('T') ? dateTimeStr : dateTimeStr.replace(' ', 'T') + ':00';
+
+          // Ask for dosage
+          Alert.prompt(
+            'Dosage',
+            'How much should be taken? (e.g., "2 capsules", "1 tablet", "5ml")',
+            (dosage) => {
+              const trimmedDosage = dosage ? dosage.trim() : null;
+              if (!trimmedDosage) {
+                // If user cancels or provides empty dosage, ask if they want to continue without dosage
+                Alert.alert(
+                  'No Dosage',
+                  'Continue without specifying dosage?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Continue', onPress: () => handleRecurrenceTypeFromHistory(supplementId, isoDateTime, supplementName, null) }
+                  ]
+                );
+                return;
+              }
+              handleRecurrenceTypeFromHistory(supplementId, isoDateTime, supplementName, trimmedDosage);
+            },
+            'plain-text',
+            ''
+          );
+        } catch (error) {
+          Alert.alert('Error', 'Invalid date/time format. Please use YYYY-MM-DD HH:MM');
+        }
+      },
+      'plain-text',
+      new Date().toISOString().slice(0, 16).replace('T', ' ')
+    );
+  };
+
+  const handleRecurrenceTypeFromHistory = (supplementId: number, isoDateTime: string, supplementName: string, dosage: string | null) => {
+    // Ask about recurrence
+    Alert.alert(
+      'Schedule Type',
+      'How often should this supplement be taken?',
+      [
+        {
+          text: 'Once',
+          onPress: async () => {
+            await addScheduledSupplement(supplementId, isoDateTime, 'once', null, null, dosage);
+            Alert.alert(
+              'Success',
+              'Supplement scheduled! View it in the Schedule tab.',
+              [
+                { text: 'OK' },
+                { text: 'View Schedule', onPress: () => router.push('/(tabs)/calendar') }
+              ]
+            );
+          }
+        },
+        {
+          text: 'Every Day',
+          onPress: async () => {
+            await addScheduledSupplement(supplementId, isoDateTime, 'daily', null, null, dosage);
+            Alert.alert(
+              'Success',
+              'Daily schedule created! View it in the Schedule tab.',
+              [
+                { text: 'OK' },
+                { text: 'View Schedule', onPress: () => router.push('/(tabs)/calendar') }
+              ]
+            );
+          }
+        },
+        {
+          text: 'Specific Days',
+          onPress: () => handleWeeklySchedule(supplementId, isoDateTime, supplementName, dosage)
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }
+      ]
+    );
+  };
+
+  const handleWeeklySchedule = (supplementId: number, dateTime: string, supplementName: string, dosage: string | null) => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    Alert.alert(
+      'Select Days',
+      `Choose which days to take ${supplementName}`,
+      [
+        ...days.map((day, index) => ({
+          text: day,
+          onPress: async () => {
+            await addScheduledSupplement(supplementId, dateTime, 'weekly', [index], null, dosage);
+            Alert.alert(
+              'Success',
+              `Scheduled for every ${day}! View it in the Schedule tab.`,
+              [
+                { text: 'OK' },
+                { text: 'View Schedule', onPress: () => router.push('/(tabs)/calendar') }
+              ]
+            );
+          }
+        })),
+        {
+          text: 'All Weekdays (Mon-Fri)',
+          onPress: async () => {
+            await addScheduledSupplement(supplementId, dateTime, 'weekly', [1, 2, 3, 4, 5], null, dosage);
+            Alert.alert(
+              'Success',
+              'Scheduled for all weekdays! View it in the Schedule tab.',
+              [
+                { text: 'OK' },
+                { text: 'View Schedule', onPress: () => router.push('/(tabs)/calendar') }
+              ]
+            );
+          }
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel' as 'cancel'
+        }
+      ]
+    );
   };
 
   const renderScoreBar = (label: string, score: number | undefined) => {
@@ -108,15 +244,26 @@ export default function HistoryScreen() {
               </View>
             )}
 
-            <TouchableOpacity
-              style={styles.deleteButton}
-              onPress={(e) => {
-                e.stopPropagation();
-                handleDelete(item.id);
-              }}
-            >
-              <Text style={styles.deleteText}>Delete</Text>
-            </TouchableOpacity>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={styles.scheduleButton}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handleSchedule(item.id, item.name);
+                }}
+              >
+                <Text style={styles.scheduleText}>Schedule</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handleDelete(item.id);
+                }}
+              >
+                <Text style={styles.deleteText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
           </>
         )}
       </TouchableOpacity>
@@ -293,17 +440,36 @@ const styles = StyleSheet.create({
     color: '#495057',
     lineHeight: 18,
   },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  scheduleButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    flex: 1,
+  },
+  scheduleText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   deleteButton: {
     backgroundColor: '#dc3545',
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 6,
-    alignSelf: 'flex-start',
+    flex: 1,
   },
   deleteText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+    textAlign: 'center',
   },
   emptyContainer: {
     flex: 1,
