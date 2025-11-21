@@ -30,9 +30,12 @@ app.post('/gpt', async (req, res) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini', // or 'gpt-4.1-mini'
+        model: 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: 'You are a concise, helpful assistant.' },
+          {
+            role: 'system',
+            content: 'You are an expert nutritionist and supplement advisor. Provide accurate, evidence-based information about supplements, vitamins, minerals, nutrition, and health. Always prioritize safety and recommend consulting healthcare professionals for personalized medical advice. Keep responses concise, helpful, and focused on supplement-related topics.'
+          },
           { role: 'user', content: prompt }
         ]
       })

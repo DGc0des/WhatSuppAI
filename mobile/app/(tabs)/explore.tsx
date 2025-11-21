@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Alert } from 'react-native';
+import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Modal, TextInput, ScrollView } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { getAllScannedSupplements, deleteScannedSupplement, type ScannedSupplement } from '../../lib/storage';
@@ -10,6 +10,14 @@ export default function HistoryScreen() {
   const [supplements, setSupplements] = useState<ScannedSupplement[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  // Schedule modal state
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [selectedSupplement, setSelectedSupplement] = useState<ScannedSupplement | null>(null);
+  const [selectedTime, setSelectedTime] = useState('08:00');
+  const [dosage, setDosage] = useState('');
+  const [recurrenceType, setRecurrenceType] = useState<'once' | 'daily' | 'weekly'>('daily');
+  const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]); // Default weekdays
 
   const loadSupplements = async () => {
     const data = await getAllScannedSupplements();
@@ -33,137 +41,44 @@ export default function HistoryScreen() {
     await loadSupplements();
   };
 
-  const handleSchedule = async (supplementId: number, supplementName: string) => {
-    Alert.prompt(
-      'Schedule Supplement',
-      `When would you like to take ${supplementName}?\n\nEnter date and time (YYYY-MM-DD HH:MM)`,
-      async (text) => {
-        if (!text) return;
-
-        try {
-          // Validate format and create ISO string
-          const dateTimeStr = text.trim();
-          const isoDateTime = dateTimeStr.includes('T') ? dateTimeStr : dateTimeStr.replace(' ', 'T') + ':00';
-
-          // Ask for dosage
-          Alert.prompt(
-            'Dosage',
-            'How much should be taken? (e.g., "2 capsules", "1 tablet", "5ml")',
-            (dosage) => {
-              const trimmedDosage = dosage ? dosage.trim() : null;
-              if (!trimmedDosage) {
-                // If user cancels or provides empty dosage, ask if they want to continue without dosage
-                Alert.alert(
-                  'No Dosage',
-                  'Continue without specifying dosage?',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Continue', onPress: () => handleRecurrenceTypeFromHistory(supplementId, isoDateTime, supplementName, null) }
-                  ]
-                );
-                return;
-              }
-              handleRecurrenceTypeFromHistory(supplementId, isoDateTime, supplementName, trimmedDosage);
-            },
-            'plain-text',
-            ''
-          );
-        } catch (error) {
-          Alert.alert('Error', 'Invalid date/time format. Please use YYYY-MM-DD HH:MM');
-        }
-      },
-      'plain-text',
-      new Date().toISOString().slice(0, 16).replace('T', ' ')
-    );
+  const openScheduleModal = (supplement: ScannedSupplement) => {
+    setSelectedSupplement(supplement);
+    setShowScheduleModal(true);
+    // Reset to defaults
+    setSelectedTime('08:00');
+    setDosage('');
+    setRecurrenceType('daily');
+    setSelectedDays([1, 2, 3, 4, 5]);
   };
 
-  const handleRecurrenceTypeFromHistory = (supplementId: number, isoDateTime: string, supplementName: string, dosage: string | null) => {
-    // Ask about recurrence
-    Alert.alert(
-      'Schedule Type',
-      'How often should this supplement be taken?',
-      [
-        {
-          text: 'Once',
-          onPress: async () => {
-            await addScheduledSupplement(supplementId, isoDateTime, 'once', null, null, dosage);
-            Alert.alert(
-              'Success',
-              'Supplement scheduled! View it in the Schedule tab.',
-              [
-                { text: 'OK' },
-                { text: 'View Schedule', onPress: () => router.push('/(tabs)/calendar') }
-              ]
-            );
-          }
-        },
-        {
-          text: 'Every Day',
-          onPress: async () => {
-            await addScheduledSupplement(supplementId, isoDateTime, 'daily', null, null, dosage);
-            Alert.alert(
-              'Success',
-              'Daily schedule created! View it in the Schedule tab.',
-              [
-                { text: 'OK' },
-                { text: 'View Schedule', onPress: () => router.push('/(tabs)/calendar') }
-              ]
-            );
-          }
-        },
-        {
-          text: 'Specific Days',
-          onPress: () => handleWeeklySchedule(supplementId, isoDateTime, supplementName, dosage)
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        }
-      ]
+  const handleScheduleConfirm = async () => {
+    if (!selectedSupplement) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    const dateTime = `${today}T${selectedTime}:00`;
+
+    const recurrenceDays = recurrenceType === 'weekly' ? selectedDays : null;
+    const dosageValue = dosage.trim() || null;
+
+    await addScheduledSupplement(
+      selectedSupplement.id,
+      dateTime,
+      recurrenceType,
+      recurrenceDays,
+      null,
+      dosageValue
     );
+
+    setShowScheduleModal(false);
+    router.push('/(tabs)/calendar');
   };
 
-  const handleWeeklySchedule = (supplementId: number, dateTime: string, supplementName: string, dosage: string | null) => {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-    Alert.alert(
-      'Select Days',
-      `Choose which days to take ${supplementName}`,
-      [
-        ...days.map((day, index) => ({
-          text: day,
-          onPress: async () => {
-            await addScheduledSupplement(supplementId, dateTime, 'weekly', [index], null, dosage);
-            Alert.alert(
-              'Success',
-              `Scheduled for every ${day}! View it in the Schedule tab.`,
-              [
-                { text: 'OK' },
-                { text: 'View Schedule', onPress: () => router.push('/(tabs)/calendar') }
-              ]
-            );
-          }
-        })),
-        {
-          text: 'All Weekdays (Mon-Fri)',
-          onPress: async () => {
-            await addScheduledSupplement(supplementId, dateTime, 'weekly', [1, 2, 3, 4, 5], null, dosage);
-            Alert.alert(
-              'Success',
-              'Scheduled for all weekdays! View it in the Schedule tab.',
-              [
-                { text: 'OK' },
-                { text: 'View Schedule', onPress: () => router.push('/(tabs)/calendar') }
-              ]
-            );
-          }
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel' as 'cancel'
-        }
-      ]
-    );
+  const toggleDay = (dayIndex: number) => {
+    if (selectedDays.includes(dayIndex)) {
+      setSelectedDays(selectedDays.filter(d => d !== dayIndex));
+    } else {
+      setSelectedDays([...selectedDays, dayIndex].sort());
+    }
   };
 
   const renderScoreBar = (label: string, score: number | undefined) => {
@@ -249,10 +164,10 @@ export default function HistoryScreen() {
                 style={styles.scheduleButton}
                 onPress={(e) => {
                   e.stopPropagation();
-                  handleSchedule(item.id, item.name);
+                  openScheduleModal(item);
                 }}
               >
-                <Text style={styles.scheduleText}>Schedule</Text>
+                <Text style={styles.scheduleText}>📅 Schedule</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.deleteButton}
@@ -261,7 +176,7 @@ export default function HistoryScreen() {
                   handleDelete(item.id);
                 }}
               >
-                <Text style={styles.deleteText}>Delete</Text>
+                <Text style={styles.deleteText}>🗑️ Delete</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -277,15 +192,23 @@ export default function HistoryScreen() {
     return { backgroundColor: '#dc3545' }; // Red
   };
 
+  const timeOptions = Array.from({ length: 24 }, (_, i) => {
+    const hour = i.toString().padStart(2, '0');
+    return [`${hour}:00`, `${hour}:30`];
+  }).flat();
+
+  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Scan History</Text>
+        <Text style={styles.title}>My Stack</Text>
+        <Text style={styles.subtitle}>{supplements.length} supplement{supplements.length !== 1 ? 's' : ''}</Text>
       </View>
       {supplements.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No supplements scanned yet</Text>
-          <Text style={styles.emptySubtext}>Scan a barcode to get started!</Text>
+          <Text style={styles.emptyText}>Your stack is empty</Text>
+          <Text style={styles.emptySubtext}>Scan a supplement to start building your stack!</Text>
         </View>
       ) : (
         <FlatList
@@ -298,6 +221,159 @@ export default function HistoryScreen() {
           }
         />
       )}
+
+      {/* Schedule Modal */}
+      <Modal
+        visible={showScheduleModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowScheduleModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>Schedule {selectedSupplement?.name}</Text>
+
+              {/* Time Selection */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>⏰ Time</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.timeScroll}>
+                  {timeOptions.map((time) => (
+                    <TouchableOpacity
+                      key={time}
+                      style={[
+                        styles.timeChip,
+                        selectedTime === time && styles.timeChipSelected
+                      ]}
+                      onPress={() => setSelectedTime(time)}
+                    >
+                      <Text style={[
+                        styles.timeChipText,
+                        selectedTime === time && styles.timeChipTextSelected
+                      ]}>
+                        {time}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+
+              {/* Dosage Input */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>💊 Dosage (Optional)</Text>
+                <TextInput
+                  style={styles.dosageInput}
+                  placeholder='e.g., "2 capsules", "1 tablet", "5ml"'
+                  value={dosage}
+                  onChangeText={setDosage}
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              {/* Frequency Selection */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>🔄 Frequency</Text>
+                <View style={styles.frequencyButtons}>
+                  <TouchableOpacity
+                    style={[
+                      styles.frequencyButton,
+                      recurrenceType === 'once' && styles.frequencyButtonSelected
+                    ]}
+                    onPress={() => setRecurrenceType('once')}
+                  >
+                    <Text style={[
+                      styles.frequencyButtonText,
+                      recurrenceType === 'once' && styles.frequencyButtonTextSelected
+                    ]}>
+                      Once
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.frequencyButton,
+                      recurrenceType === 'daily' && styles.frequencyButtonSelected
+                    ]}
+                    onPress={() => setRecurrenceType('daily')}
+                  >
+                    <Text style={[
+                      styles.frequencyButtonText,
+                      recurrenceType === 'daily' && styles.frequencyButtonTextSelected
+                    ]}>
+                      Every Day
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.frequencyButton,
+                      recurrenceType === 'weekly' && styles.frequencyButtonSelected
+                    ]}
+                    onPress={() => setRecurrenceType('weekly')}
+                  >
+                    <Text style={[
+                      styles.frequencyButtonText,
+                      recurrenceType === 'weekly' && styles.frequencyButtonTextSelected
+                    ]}>
+                      Specific Days
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Day Selection (only for weekly) */}
+              {recurrenceType === 'weekly' && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>📅 Select Days</Text>
+                  <View style={styles.daysContainer}>
+                    {daysOfWeek.map((day, index) => (
+                      <TouchableOpacity
+                        key={day}
+                        style={[
+                          styles.dayChip,
+                          selectedDays.includes(index) && styles.dayChipSelected
+                        ]}
+                        onPress={() => toggleDay(index)}
+                      >
+                        <Text style={[
+                          styles.dayChipText,
+                          selectedDays.includes(index) && styles.dayChipTextSelected
+                        ]}>
+                          {day}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <TouchableOpacity
+                    style={styles.weekdaysButton}
+                    onPress={() => setSelectedDays([1, 2, 3, 4, 5])}
+                  >
+                    <Text style={styles.weekdaysButtonText}>Select All Weekdays</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Action Buttons */}
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => setShowScheduleModal(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.confirmButton,
+                    (recurrenceType === 'weekly' && selectedDays.length === 0) && styles.confirmButtonDisabled
+                  ]}
+                  onPress={handleScheduleConfirm}
+                  disabled={recurrenceType === 'weekly' && selectedDays.length === 0}
+                >
+                  <Text style={styles.confirmButtonText}>Schedule</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -318,6 +394,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#6c757d',
+    marginTop: 4,
   },
   list: {
     padding: 16,
@@ -443,13 +524,13 @@ const styles = StyleSheet.create({
   actionButtons: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 8,
+    marginTop: 12,
   },
   scheduleButton: {
     backgroundColor: '#007AFF',
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 16,
-    borderRadius: 6,
+    borderRadius: 8,
     flex: 1,
   },
   scheduleText: {
@@ -460,9 +541,9 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     backgroundColor: '#dc3545',
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 16,
-    borderRadius: 6,
+    borderRadius: 8,
     flex: 1,
   },
   deleteText: {
@@ -488,5 +569,154 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6c757d',
     textAlign: 'center',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    maxHeight: '90%',
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 24,
+    color: '#000',
+  },
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+    color: '#333',
+  },
+  timeScroll: {
+    flexGrow: 0,
+  },
+  timeChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    marginRight: 8,
+  },
+  timeChipSelected: {
+    backgroundColor: '#007AFF',
+  },
+  timeChipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  timeChipTextSelected: {
+    color: '#fff',
+  },
+  dosageInput: {
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#000',
+  },
+  frequencyButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  frequencyButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+  },
+  frequencyButtonSelected: {
+    backgroundColor: '#007AFF',
+  },
+  frequencyButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  frequencyButtonTextSelected: {
+    color: '#fff',
+  },
+  daysContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  dayChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    minWidth: 48,
+    alignItems: 'center',
+  },
+  dayChipSelected: {
+    backgroundColor: '#28a745',
+  },
+  dayChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+  },
+  dayChipTextSelected: {
+    color: '#fff',
+  },
+  weekdaysButton: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#e3f2fd',
+    alignItems: 'center',
+  },
+  weekdaysButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  confirmButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#007AFF',
+    alignItems: 'center',
+  },
+  confirmButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+  confirmButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });
