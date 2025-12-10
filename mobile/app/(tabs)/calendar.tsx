@@ -1,10 +1,27 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ScrollView, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ScrollView, Image, Alert, TextInput, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { Calendar, DateData } from 'react-native-calendars';
 import { useFocusEffect } from '@react-navigation/native';
 import { getAllScannedSupplements, type ScannedSupplement } from '../../lib/storage';
 import { getScheduledSupplements, addScheduledSupplement, deleteScheduledSupplement, updateScheduledSupplement, type ScheduledSupplement } from '../../lib/scheduleStorage';
-import { scheduleSupplementNotification, cancelNotification, getAllScheduledNotifications, type NotificationTiming } from '../../lib/notificationService';
+import { scheduleSupplementNotification, cancelNotification, type NotificationTiming } from '../../lib/notificationService';
+
+const MEASUREMENT_UNITS = [
+  { label: 'capsule(s)', value: 'capsule', needsPlural: true },
+  { label: 'tablet(s)', value: 'tablet', needsPlural: true },
+  { label: 'softgel(s)', value: 'softgel', needsPlural: true },
+  { label: 'pill(s)', value: 'pill', needsPlural: true },
+  { label: 'gummy/gummies', value: 'gummy', needsPlural: 'gummies' },
+  { label: 'ml', value: 'ml', needsPlural: false },
+  { label: 'mg', value: 'mg', needsPlural: false },
+  { label: 'g', value: 'g', needsPlural: false },
+  { label: 'mcg', value: 'mcg', needsPlural: false },
+  { label: 'IU', value: 'IU', needsPlural: false },
+  { label: 'drop(s)', value: 'drop', needsPlural: true },
+  { label: 'spray(s)', value: 'spray', needsPlural: true },
+  { label: 'scoop(s)', value: 'scoop', needsPlural: true },
+  { label: 'packet(s)', value: 'packet', needsPlural: true },
+];
 
 export default function CalendarScreen() {
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -12,6 +29,17 @@ export default function CalendarScreen() {
   const [allSupplements, setAllSupplements] = useState<ScannedSupplement[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [markedDates, setMarkedDates] = useState<any>({});
+
+  // Dosage modal state
+  const [showDosageModal, setShowDosageModal] = useState(false);
+  const [dosageAmount, setDosageAmount] = useState('');
+  const [selectedUnit, setSelectedUnit] = useState('capsule');
+  const [dosageContext, setDosageContext] = useState<{
+    type: 'add' | 'update';
+    supplementId?: number;
+    time?: string;
+    scheduleId?: number;
+  } | null>(null);
 
   const loadData = async () => {
     const scheduled = await getScheduledSupplements();
@@ -49,28 +77,11 @@ export default function CalendarScreen() {
       return;
     }
 
-    // Ask for dosage first
-    Alert.prompt(
-      'Dosage',
-      'How much should be taken? (e.g., "2 capsules", "1 tablet", "5ml")',
-      (dosage) => {
-        if (!dosage) {
-          // If user cancels or provides empty dosage, ask if they want to continue without dosage
-          Alert.alert(
-            'No Dosage',
-            'Continue without specifying dosage?',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Continue', onPress: () => handleRecurrenceType(supplementId, time, null) }
-            ]
-          );
-          return;
-        }
-        handleRecurrenceType(supplementId, time, dosage.trim());
-      },
-      'plain-text',
-      ''
-    );
+    // Show dosage modal
+    setDosageAmount('');
+    setSelectedUnit('capsule');
+    setDosageContext({ type: 'add', supplementId, time });
+    setShowDosageModal(true);
   };
 
   const handleRecurrenceType = (supplementId: number, time: string, dosage: string | null) => {
@@ -209,14 +220,33 @@ export default function CalendarScreen() {
       return;
     }
 
+    // Parse as local time by extracting date/time parts
+    const [datePart, timePart] = dateTime.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hour, minute] = timePart.split(':').map(Number);
+
+    console.log('=== SCHEDULING FROM CALENDAR ===');
+    console.log('[Calendar] DateTime string:', dateTime);
+    console.log('[Calendar] Parsed components:', { year, month, day, hour, minute });
+
+    const localDate = new Date(year, month - 1, day, hour, minute, 0);
+
+    console.log('[Calendar] Parsed local date:', localDate.toLocaleString());
+    console.log('[Calendar] Parsed local date (ISO):', localDate.toISOString());
+    console.log('[Calendar] Parsed local date (timestamp):', localDate.getTime());
+    console.log('[Calendar] Is valid date?', !isNaN(localDate.getTime()));
+    console.log('[Calendar] Notification timing:', notificationTiming);
+
     // Schedule the notification
     const notificationId = await scheduleSupplementNotification(
       supplement.name,
       supplement.brand,
-      new Date(dateTime),
+      localDate,
       notificationTiming,
       dosage
     );
+
+    console.log('[Calendar] Notification ID returned:', notificationId);
 
     // Add to database with notification info
     await addScheduledSupplement(
@@ -290,11 +320,9 @@ export default function CalendarScreen() {
   };
 
   const handleUpdateTime = (schedule: ScheduledSupplement) => {
-    const currentTime = new Date(schedule.scheduled_date).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    });
+    // Extract time directly from the ISO string to avoid timezone conversion
+    const timeString = schedule.scheduled_date.split('T')[1]?.substring(0, 5) || '00:00';
+    const currentTime = timeString; // Already in HH:MM format
 
     Alert.prompt(
       'Update Time',
@@ -308,11 +336,48 @@ export default function CalendarScreen() {
           return;
         }
 
-        const currentDate = schedule.scheduled_date.split('T')[0];
-        const newDateTime = `${currentDate}T${text.trim()}:00`;
+        // Always use today's date when updating time
+        // This ensures we're not scheduling notifications in the past
+        const targetDate = new Date().toISOString().split('T')[0];
+        const newDateTime = `${targetDate}T${text.trim()}:00`;
 
-        await updateScheduledSupplement(schedule.id, { scheduled_date: newDateTime });
+        console.log('[Calendar] Updating time from', schedule.scheduled_date, 'to', newDateTime);
+
+        // If notification is enabled, cancel old and schedule new
+        let newNotificationId = schedule.notification_id;
+        if (schedule.notification_enabled) {
+          // Cancel old notification
+          if (schedule.notification_id) {
+            await cancelNotification(schedule.notification_id);
+          }
+
+          // Parse as local time
+          const [datePart, timePart] = newDateTime.split('T');
+          const [year, month, day] = datePart.split('-').map(Number);
+          const [hour, minute] = timePart.split(':').map(Number);
+          const localDate = new Date(year, month - 1, day, hour, minute, 0);
+
+          // Schedule new notification with updated time
+          newNotificationId = await scheduleSupplementNotification(
+            schedule.supplement.name,
+            schedule.supplement.brand,
+            localDate,
+            schedule.notification_timing,
+            schedule.dosage
+          );
+        }
+
+        const result = await updateScheduledSupplement(schedule.id, {
+          scheduled_date: newDateTime,
+          notification_id: newNotificationId
+        });
+
+        console.log('[Calendar] Update result:', result);
+
         await loadData();
+
+        console.log('[Calendar] Data reloaded');
+
         Alert.alert('Success', 'Time updated!');
       },
       'plain-text',
@@ -321,18 +386,92 @@ export default function CalendarScreen() {
   };
 
   const handleUpdateDosage = (schedule: ScheduledSupplement) => {
-    Alert.prompt(
-      'Update Dosage',
-      'Enter new dosage (e.g., "2 capsules", "1 tablet", "5ml")',
-      async (text) => {
-        const newDosage = text ? text.trim() : null;
-        await updateScheduledSupplement(schedule.id, { dosage: newDosage });
-        await loadData();
-        Alert.alert('Success', 'Dosage updated!');
-      },
-      'plain-text',
-      schedule.dosage || ''
+    // Parse existing dosage
+    const existingAmount = schedule.dosage?.split(' ')[0] || '';
+    const existingUnit = schedule.dosage?.split(' ')[1] || 'capsule';
+
+    // Find matching unit or default to capsule
+    const unitMatch = MEASUREMENT_UNITS.find(u =>
+      existingUnit.startsWith(u.value) ||
+      (u.needsPlural && typeof u.needsPlural === 'string' && existingUnit === u.needsPlural)
     );
+
+    setDosageAmount(existingAmount);
+    setSelectedUnit(unitMatch?.value || 'capsule');
+    setDosageContext({ type: 'update', scheduleId: schedule.id });
+    setShowDosageModal(true);
+  };
+
+  const formatDosage = (amount: string, unit: string): string => {
+    const unitConfig = MEASUREMENT_UNITS.find(u => u.value === unit);
+    if (!unitConfig) return `${amount} ${unit}`;
+
+    if (!unitConfig.needsPlural) {
+      // Units like ml, mg, g, mcg, IU don't need pluralization
+      return `${amount} ${unit}`;
+    } else if (typeof unitConfig.needsPlural === 'string') {
+      // Special case like gummy/gummies
+      return `${amount} ${amount === '1' ? unit : unitConfig.needsPlural}`;
+    } else {
+      // Regular pluralization: capsule/capsules, tablet/tablets, etc.
+      return `${amount} ${unit}${amount === '1' ? '' : 's'}`;
+    }
+  };
+
+  const handleDosageSubmit = async () => {
+    if (!dosageContext) return;
+
+    if (!dosageAmount.trim()) {
+      if (dosageContext.type === 'update') {
+        // Allow removing dosage when updating
+        Alert.alert(
+          'Remove Dosage',
+          'Remove dosage from this schedule?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Remove',
+              style: 'destructive',
+              onPress: async () => {
+                await updateScheduledSupplement(dosageContext.scheduleId!, { dosage: null });
+                await loadData();
+                setShowDosageModal(false);
+                Alert.alert('Success', 'Dosage removed!');
+              }
+            }
+          ]
+        );
+      } else {
+        // When adding, allow skipping dosage
+        Alert.alert(
+          'No Dosage',
+          'Continue without specifying dosage?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Continue',
+              onPress: () => {
+                setShowDosageModal(false);
+                handleRecurrenceType(dosageContext.supplementId!, dosageContext.time!, null);
+              }
+            }
+          ]
+        );
+      }
+      return;
+    }
+
+    const dosageText = formatDosage(dosageAmount.trim(), selectedUnit);
+
+    if (dosageContext.type === 'add') {
+      setShowDosageModal(false);
+      handleRecurrenceType(dosageContext.supplementId!, dosageContext.time!, dosageText);
+    } else {
+      await updateScheduledSupplement(dosageContext.scheduleId!, { dosage: dosageText });
+      await loadData();
+      setShowDosageModal(false);
+      Alert.alert('Success', `Dosage updated to ${dosageText}!`);
+    }
   };
 
   const handleUpdateRecurrence = (schedule: ScheduledSupplement) => {
@@ -484,11 +623,17 @@ export default function CalendarScreen() {
       await cancelNotification(schedule.notification_id);
     }
 
+    // Parse as local time
+    const [datePart, timePart] = schedule.scheduled_date.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hour, minute] = timePart.split(':').map(Number);
+    const localDate = new Date(year, month - 1, day, hour, minute, 0);
+
     // Schedule new notification
     const notificationId = await scheduleSupplementNotification(
       schedule.supplement.name,
       schedule.supplement.brand,
-      new Date(schedule.scheduled_date),
+      localDate,
       timing,
       schedule.dosage
     );
@@ -537,10 +682,13 @@ export default function CalendarScreen() {
   };
 
   const renderScheduledItem = ({ item }: { item: ScheduledSupplement }) => {
-    const time = new Date(item.scheduled_date).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    // Extract time directly from the ISO string to avoid timezone conversion
+    const timeString = item.scheduled_date.split('T')[1]?.substring(0, 5) || '00:00';
+    const [hours, minutes] = timeString.split(':');
+    const hour = parseInt(hours, 10);
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    const time = `${displayHour.toString().padStart(2, '0')}:${minutes} ${period}`;
 
     const getRecurrenceLabel = () => {
       if (item.recurrence_type === 'daily') return '🔄 Daily';
@@ -667,26 +815,12 @@ export default function CalendarScreen() {
               day: 'numeric'
             }) : 'Select a date'}
           </Text>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity
-              style={[styles.addButton, { backgroundColor: '#6c757d' }]}
-              onPress={async () => {
-                const notifs = await getAllScheduledNotifications();
-                Alert.alert(
-                  'Debug: Scheduled Notifications',
-                  `Total: ${notifs.length}\n\nCheck console for details`
-                );
-              }}
-            >
-              <Text style={styles.addButtonText}>Debug</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.addButton}
-              onPress={() => setShowAddModal(true)}
-            >
-              <Text style={styles.addButtonText}>+ Add</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => setShowAddModal(true)}
+          >
+            <Text style={styles.addButtonText}>+ Add</Text>
+          </TouchableOpacity>
         </View>
 
         {getSupplementsForDate().length === 0 ? (
@@ -731,10 +865,13 @@ export default function CalendarScreen() {
                     Alert.alert(
                       'Select Supplement',
                       'Choose a supplement from your history',
-                      allSupplements.map(supp => ({
-                        text: supp.name,
-                        onPress: () => handleAddSupplement(supp.id, time)
-                      })).concat([{ text: 'Cancel', style: 'cancel' }])
+                      [
+                        ...allSupplements.map(supp => ({
+                          text: supp.name,
+                          onPress: () => handleAddSupplement(supp.id, time)
+                        })),
+                        { text: 'Cancel', style: 'cancel' as 'cancel' }
+                      ]
                     );
                   }}
                 >
@@ -783,6 +920,112 @@ export default function CalendarScreen() {
             </ScrollView>
           </View>
         </View>
+      </Modal>
+
+      {/* Dosage Modal */}
+      <Modal
+        visible={showDosageModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowDosageModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.dosageModalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>
+                    {dosageContext?.type === 'add' ? 'Set Dosage' : 'Update Dosage'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setShowDosageModal(false)}>
+                    <Text style={styles.modalClose}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  style={styles.dosageScrollView}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
+                  <View style={styles.dosageInputContainer}>
+                    <View style={styles.dosageAmountSection}>
+                      <Text style={styles.dosageModalLabel}>Amount</Text>
+                      <TextInput
+                        style={styles.dosageInput}
+                        value={dosageAmount}
+                        onChangeText={setDosageAmount}
+                        placeholder="e.g., 2"
+                        keyboardType="numeric"
+                        returnKeyType="done"
+                        onSubmitEditing={Keyboard.dismiss}
+                      />
+                    </View>
+
+                    <View style={styles.dosageUnitSection}>
+                      <Text style={styles.dosageModalLabel}>Unit</Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        style={styles.unitScroll}
+                        contentContainerStyle={styles.unitScrollContent}
+                        onScrollBeginDrag={Keyboard.dismiss}
+                      >
+                        {MEASUREMENT_UNITS.map((unit) => (
+                          <TouchableOpacity
+                            key={unit.value}
+                            style={[
+                              styles.unitChip,
+                              selectedUnit === unit.value && styles.unitChipSelected
+                            ]}
+                            onPress={() => {
+                              Keyboard.dismiss();
+                              setSelectedUnit(unit.value);
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.unitChipText,
+                                selectedUnit === unit.value && styles.unitChipTextSelected
+                              ]}
+                            >
+                              {unit.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+
+                    <View style={styles.dosagePreview}>
+                      <Text style={styles.dosagePreviewLabel}>Preview:</Text>
+                      <Text style={styles.dosagePreviewText}>
+                        {dosageAmount.trim()
+                          ? formatDosage(dosageAmount.trim(), selectedUnit)
+                          : 'No dosage'}
+                      </Text>
+                    </View>
+                  </View>
+                </ScrollView>
+
+                <View style={styles.dosageModalButtons}>
+                  <TouchableOpacity
+                    style={[styles.dosageButton, styles.dosageButtonCancel]}
+                    onPress={() => setShowDosageModal(false)}
+                  >
+                    <Text style={styles.dosageButtonCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.dosageButton, styles.dosageButtonConfirm]}
+                    onPress={handleDosageSubmit}
+                  >
+                    <Text style={styles.dosageButtonConfirmText}>
+                      {dosageAmount.trim() ? 'Confirm' : 'Skip'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
     </View>
   );
@@ -1001,5 +1244,119 @@ const styles = StyleSheet.create({
   supplementItemBrand: {
     fontSize: 12,
     color: '#6c757d',
+  },
+  // Dosage Modal styles
+  dosageModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  dosageScrollView: {
+    flexGrow: 0,
+  },
+  dosageInputContainer: {
+    paddingBottom: 20,
+  },
+  dosageAmountSection: {
+    marginBottom: 20,
+  },
+  dosageModalLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 10,
+    color: '#333',
+  },
+  dosageInput: {
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    backgroundColor: '#f8f9fa',
+  },
+  dosageUnitSection: {
+    marginBottom: 20,
+  },
+  unitScroll: {
+    maxHeight: 120,
+  },
+  unitScrollContent: {
+    paddingBottom: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  unitChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    backgroundColor: '#fff',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  unitChipSelected: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  unitChipText: {
+    fontSize: 14,
+    color: '#495057',
+    fontWeight: '500',
+  },
+  unitChipTextSelected: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  dosagePreview: {
+    backgroundColor: '#f8f9fa',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  dosagePreviewLabel: {
+    fontSize: 12,
+    color: '#6c757d',
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  dosagePreviewText: {
+    fontSize: 18,
+    color: '#000',
+    fontWeight: '600',
+  },
+  dosageModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dosageButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  dosageButtonCancel: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+  },
+  dosageButtonConfirm: {
+    backgroundColor: '#007AFF',
+  },
+  dosageButtonCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#495057',
+  },
+  dosageButtonConfirmText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });

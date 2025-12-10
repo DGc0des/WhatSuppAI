@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Modal, TextInput, ScrollView, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { getAllStack, removeFromStack, type Supplement } from '../../lib/storage';
+import { getAllStack, removeFromStack, getAllHistory, addToStack, isInStack, type Supplement } from '../../lib/storage';
 import { addScheduledSupplement } from '../../lib/scheduleStorage';
 
 export default function StackScreen() {
@@ -18,6 +18,11 @@ export default function StackScreen() {
   const [dosage, setDosage] = useState('');
   const [recurrenceType, setRecurrenceType] = useState<'once' | 'daily' | 'weekly'>('daily');
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]); // Default weekdays
+
+  // History modal state
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyItems, setHistoryItems] = useState<Supplement[]>([]);
+  const [inStackSet, setInStackSet] = useState<Set<string>>(new Set());
 
   const loadSupplements = async () => {
     const data = await getAllStack();
@@ -114,6 +119,26 @@ export default function StackScreen() {
     return '#dc3545';
   };
 
+  const loadHistory = async () => {
+    const history = await getAllHistory();
+    setHistoryItems(history);
+
+    // Check which items are in stack
+    const stackStatus = new Set<string>();
+    for (const item of history) {
+      const inStack = await isInStack(item.barcode);
+      if (inStack) stackStatus.add(item.barcode);
+    }
+    setInStackSet(stackStatus);
+  };
+
+  const handleAddToStackFromHistory = async (supplement: Supplement) => {
+    await addToStack(supplement);
+    await loadSupplements();
+    await loadHistory(); // Refresh history to update button states
+    Alert.alert('Added to Stack', `${supplement.name} has been added to your stack`);
+  };
+
   const renderItem = ({ item }: { item: Supplement }) => {
     const isExpanded = expandedId === item.id;
 
@@ -198,6 +223,48 @@ export default function StackScreen() {
     );
   };
 
+  const renderHistoryItem = ({ item }: { item: Supplement }) => {
+    const isInStack = inStackSet.has(item.barcode);
+
+    return (
+      <View style={styles.historyCard}>
+        <View style={styles.historyCardContent}>
+          {item.image && (
+            <Image
+              source={{ uri: item.image }}
+              style={styles.historyThumbnail}
+              resizeMode="contain"
+            />
+          )}
+          <View style={styles.historyInfo}>
+            <Text style={styles.historyName} numberOfLines={2}>
+              {item.name}
+            </Text>
+            <Text style={styles.historyBrand}>{item.brand}</Text>
+            <Text style={styles.historyDate}>
+              {new Date(item.created_at).toLocaleDateString()}
+            </Text>
+          </View>
+        </View>
+        <TouchableOpacity
+          style={[
+            styles.addToStackButton,
+            isInStack && styles.addToStackButtonDisabled
+          ]}
+          onPress={() => !isInStack && handleAddToStackFromHistory(item)}
+          disabled={isInStack}
+        >
+          <Text style={[
+            styles.addToStackButtonText,
+            isInStack && styles.addToStackButtonTextDisabled
+          ]}>
+            {isInStack ? '✓ In Stack' : '+ Add to Stack'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   const getRatingColor = (rating: number) => {
     if (rating >= 80) return { backgroundColor: '#28a745' }; // Green
     if (rating >= 60) return { backgroundColor: '#ffc107' }; // Yellow
@@ -215,8 +282,19 @@ export default function StackScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>My Stack</Text>
-        <Text style={styles.subtitle}>{supplements.length} supplement{supplements.length !== 1 ? 's' : ''}</Text>
+        <View>
+          <Text style={styles.title}>My Stack</Text>
+          <Text style={styles.subtitle}>{supplements.length} supplement{supplements.length !== 1 ? 's' : ''}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.historyButton}
+          onPress={async () => {
+            await loadHistory();
+            setShowHistoryModal(true);
+          }}
+        >
+          <Text style={styles.historyButtonText}>📜 History</Text>
+        </TouchableOpacity>
       </View>
       {supplements.length === 0 ? (
         <View style={styles.emptyContainer}>
@@ -387,6 +465,41 @@ export default function StackScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* History Modal */}
+      <Modal
+        visible={showHistoryModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowHistoryModal(false)}
+      >
+        <View style={styles.historyModalOverlay}>
+          <View style={styles.historyModalContainer}>
+            <View style={styles.historyModalHeader}>
+              <Text style={styles.historyModalTitle}>History</Text>
+              <TouchableOpacity
+                onPress={() => setShowHistoryModal(false)}
+                style={styles.historyCloseButton}
+              >
+                <Text style={styles.historyCloseButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {historyItems.length === 0 ? (
+              <View style={styles.historyEmptyContainer}>
+                <Text style={styles.historyEmptyText}>No history yet</Text>
+                <Text style={styles.historyEmptySubtext}>Scanned supplements will appear here</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={historyItems}
+                keyExtractor={(item) => String(item.id)}
+                renderItem={renderHistoryItem}
+                contentContainerStyle={styles.historyList}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -403,6 +516,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8f9fa',
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   title: {
     fontSize: 28,
@@ -412,6 +528,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6c757d',
     marginTop: 4,
+  },
+  historyButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  historyButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   list: {
     padding: 16,
@@ -731,5 +858,127 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  // History Modal styles
+  historyModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-start',
+    paddingTop: 60,
+  },
+  historyModalContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+    flex: 1,
+  },
+  historyModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  historyModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000',
+  },
+  historyCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  historyCloseButtonText: {
+    fontSize: 20,
+    color: '#666',
+    fontWeight: '600',
+  },
+  historyList: {
+    padding: 16,
+  },
+  historyCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  historyCardContent: {
+    flexDirection: 'row',
+    flex: 1,
+    marginRight: 12,
+  },
+  historyThumbnail: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    backgroundColor: '#f8f9fa',
+  },
+  historyInfo: {
+    flex: 1,
+    marginLeft: 12,
+    justifyContent: 'center',
+  },
+  historyName: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  historyBrand: {
+    fontSize: 12,
+    color: '#6c757d',
+    marginBottom: 2,
+  },
+  historyDate: {
+    fontSize: 11,
+    color: '#adb5bd',
+  },
+  addToStackButton: {
+    backgroundColor: '#28a745',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minWidth: 100,
+  },
+  addToStackButtonDisabled: {
+    backgroundColor: '#e9ecef',
+  },
+  addToStackButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  addToStackButtonTextDisabled: {
+    color: '#6c757d',
+  },
+  historyEmptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  historyEmptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#495057',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  historyEmptySubtext: {
+    fontSize: 13,
+    color: '#6c757d',
+    textAlign: 'center',
   },
 });

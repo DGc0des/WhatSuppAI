@@ -40,6 +40,8 @@ export async function getScheduledSupplements(): Promise<ScheduledSupplement[]> 
       throw error;
     }
 
+    console.log('[scheduleStorage] Fetched scheduled supplements count:', data?.length || 0);
+
     // Transform the data to flatten the supplement object
     const transformed = (data || []).map((item: any) => ({
       id: item.id,
@@ -56,6 +58,8 @@ export async function getScheduledSupplements(): Promise<ScheduledSupplement[]> 
       notification_id: item.notification_id || null,
       supplement: item.supplement
     }));
+
+    console.log('[scheduleStorage] Sample scheduled_date from first item:', transformed[0]?.scheduled_date);
 
     return transformed;
   } catch (error) {

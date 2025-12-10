@@ -103,9 +103,17 @@ export async function scheduleSupplementNotification(
     // Add a small buffer (5 seconds) to avoid immediate notifications
     const minimumTime = new Date(now.getTime() + 5000);
 
+    console.log('=== NOTIFICATION SCHEDULING DEBUG ===');
     console.log('[Notifications] Scheduled time:', scheduledDate.toLocaleString());
+    console.log('[Notifications] Scheduled time (ISO):', scheduledDate.toISOString());
+    console.log('[Notifications] Scheduled time (timestamp):', scheduledDate.getTime());
     console.log('[Notifications] Notification time:', notificationTime.toLocaleString());
+    console.log('[Notifications] Notification time (ISO):', notificationTime.toISOString());
+    console.log('[Notifications] Notification time (timestamp):', notificationTime.getTime());
     console.log('[Notifications] Current time:', now.toLocaleString());
+    console.log('[Notifications] Current time (ISO):', now.toISOString());
+    console.log('[Notifications] Current time (timestamp):', now.getTime());
+    console.log('[Notifications] Timing preference:', timing);
 
     // Don't schedule if the time is in the past or too soon
     if (notificationTime < minimumTime) {
@@ -196,12 +204,50 @@ export async function getAllScheduledNotifications() {
     notifications.forEach((notif, index) => {
       const trigger = notif.trigger as any;
       console.log(`[Notifications] ${index + 1}. ${notif.content.title} - ${notif.content.body}`);
-      console.log(`[Notifications]    Scheduled for: ${trigger.date ? new Date(trigger.date).toLocaleString() : 'Unknown'}`);
+      if (trigger.type === 'timeInterval') {
+        console.log(`[Notifications]    Will fire in ${trigger.seconds} seconds (${Math.floor(trigger.seconds / 60)} minutes)`);
+      } else {
+        console.log(`[Notifications]    Scheduled for: ${trigger.date ? new Date(trigger.date).toLocaleString() : 'Unknown'}`);
+      }
       console.log(`[Notifications]    ID: ${notif.identifier}`);
     });
     return notifications;
   } catch (error) {
     console.error('[Notifications] Error getting scheduled notifications:', error);
     return [];
+  }
+}
+
+/**
+ * Test notification - schedules a notification in 10 seconds for testing
+ */
+export async function testNotification(): Promise<void> {
+  try {
+    console.log('[Notifications] 🧪 Testing notification in 10 seconds...');
+
+    const hasPermission = await requestNotificationPermissions();
+    if (!hasPermission) {
+      console.log('[Notifications] ❌ Cannot test - no permission');
+      return;
+    }
+
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '🧪 Test Notification',
+        body: 'If you see this, notifications are working!',
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: 10,
+        repeats: false,
+      },
+    });
+
+    console.log('[Notifications] ✅ Test notification scheduled:', notificationId);
+    console.log('[Notifications] You should receive a notification in 10 seconds');
+  } catch (error) {
+    console.error('[Notifications] ❌ Test notification failed:', error);
   }
 }
