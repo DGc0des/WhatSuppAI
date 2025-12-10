@@ -1,12 +1,15 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const app = express();
+const jsQR = require('jsqr');
+const sharp = require('sharp');
 
 require('dotenv').config();
 
 const port = process.env.PORT || 3000;
 console.log("Server using port:", port);
-app.use(express.json());  // for parsing application/json
+app.use(express.json({ limit: '50mb' }));  // for parsing application/json with larger payloads
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`Supp app running on http://0.0.0.0:${port}`);
@@ -46,6 +49,58 @@ app.post('/gpt', async (req, res) => {
     const text = data.choices?.[0]?.message?.content ?? '';
     res.json({ ok: true, text });
   } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/scan-image', async (req, res) => {
+  try {
+    console.log('[/scan-image] Request received');
+    const { imageUri } = req.body || {};
+
+    if (!imageUri) {
+      return res.status(400).json({ ok: false, error: 'No image provided' });
+    }
+
+    console.log('[/scan-image] Processing image...');
+
+    // Remove data URI prefix if present
+    const base64Data = imageUri.replace(/^data:image\/\w+;base64,/, '');
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+
+    // Convert image to raw pixel data using sharp
+    const { data, info } = await sharp(imageBuffer)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    console.log('[/scan-image] Image dimensions:', info.width, 'x', info.height);
+
+    // Convert to Uint8ClampedArray for jsQR
+    const imageData = new Uint8ClampedArray(data.buffer);
+
+    // Try to scan barcode
+    const code = jsQR(imageData, info.width, info.height);
+
+    if (!code) {
+      console.log('[/scan-image] No barcode found in image');
+      return res.json({ ok: true, found: false, message: 'No barcode detected in image' });
+    }
+
+    console.log('[/scan-image] Barcode found:', code.data);
+
+    // Return the barcode data
+    res.json({
+      ok: true,
+      found: true,
+      barcode: {
+        raw: code.data,
+        symbology: 'unknown' // jsQR doesn't provide symbology info
+      }
+    });
+
+  } catch (e) {
+    console.error('[/scan-image] Error:', e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 });

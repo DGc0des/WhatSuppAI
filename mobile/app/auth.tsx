@@ -27,6 +27,7 @@ export default function AuthScreen() {
         // Send password reset email
         // Note: Supabase doesn't tell us if the user exists for security reasons
         // So we always send the reset request and show a success message
+        // Uses Supabase's default password reset page
         const { error: resetError } = await supabase.auth.resetPasswordForEmail(email);
 
         if (resetError) {

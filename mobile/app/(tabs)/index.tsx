@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Button, ScrollView, StyleSheet, Text, View, Image, Alert, TouchableOpacity } from 'react-native';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { identify } from '../../lib/api';
-import { saveScannedSupplement } from '../../lib/storage';
+import { saveScannedSupplement, addToStack, isInStack } from '../../lib/storage';
 import { signOut } from '../../lib/auth';
 
 
@@ -18,6 +19,7 @@ export default function Home() {
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
   const [identifyOut, setIdentifyOut] = useState<any>(null);
+  const [inStack, setInStack] = useState(false);
   const lastCodeRef = useRef<string | null>(null);
   const lastLogRef = useRef<number>(0);
 
@@ -73,12 +75,130 @@ export default function Home() {
           rating: json.rating,
           scores: json.scores,
         });
+
+        // Check if already in stack
+        const stackStatus = await isInStack(raw);
+        setInStack(stackStatus);
       }
     } catch (e: any) {
       setIdentifyOut({ ok: false, error: e.message });
       setStatusText(`lookup failed: ${e.message}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePickImage = async () => {
+    // Request media library permissions
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please grant access to your photos to use this feature.');
+      return;
+    }
+
+    // Launch image picker
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 1,
+      base64: true, // Important: get base64 data
+    });
+
+    if (result.canceled) {
+      return;
+    }
+
+    setLoading(true);
+    setScanned(true);
+    setStatusText('Scanning barcode from image…');
+    setIdentifyOut(null);
+
+    try {
+      const imageAsset = result.assets[0];
+
+      // Convert to base64 if not already
+      const base64Image = imageAsset.base64
+        ? `data:image/jpeg;base64,${imageAsset.base64}`
+        : imageAsset.uri;
+
+      // Send to backend for barcode scanning
+      const { scanImageForBarcode } = await import('../../lib/api');
+      const scanResult = await scanImageForBarcode(base64Image);
+
+      if (!scanResult.found) {
+        Alert.alert(
+          'No Barcode Found',
+          'Could not detect a barcode in this image. Please try:\n• Taking a clearer photo\n• Ensuring good lighting\n• Getting closer to the barcode',
+          [{ text: 'OK' }]
+        );
+        setLoading(false);
+        setScanned(false);
+        setStatusText('camera ready — point at a barcode');
+        return;
+      }
+
+      // Found barcode! Now identify it
+      setStatusText(`Found barcode: ${scanResult.barcode.raw} — looking it up…`);
+
+      const sym = mapType(scanResult.barcode.symbology);
+      const raw = String(scanResult.barcode.raw);
+      const json = await identify({ raw, symbology: sym });
+
+      console.log('[Gallery] API Response:', {
+        found: json?.found,
+        hasAnalysis: !!json?.analysis,
+        hasRating: !!json?.rating,
+        hasScores: !!json?.scores,
+      });
+
+      setIdentifyOut(json);
+      setStatusText(`lookup done (found=${json?.found})`);
+
+      // Save to history if found
+      if (json?.found && json?.doc) {
+        await saveScannedSupplement({
+          barcode: raw,
+          name: json.doc.name || 'Unknown',
+          brand: json.doc.brand || 'N/A',
+          image: json.doc.images?.[0],
+          analysis: json.analysis,
+          rating: json.rating,
+          scores: json.scores,
+        });
+
+        // Check if already in stack
+        const stackStatus = await isInStack(raw);
+        setInStack(stackStatus);
+      }
+
+    } catch (e: any) {
+      console.error('[Gallery] Error:', e);
+      Alert.alert('Error', `Failed to process image: ${e.message}`);
+      setStatusText('camera ready — point at a barcode');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddToStack = async () => {
+    if (!identifyOut?.found || !identifyOut?.doc) return;
+
+    try {
+      await addToStack({
+        barcode: identifyOut.normalized?.ean13 || identifyOut.normalized?.upcA || '',
+        name: identifyOut.doc.name || 'Unknown',
+        brand: identifyOut.doc.brand || 'N/A',
+        image: identifyOut.doc.images?.[0],
+        analysis: identifyOut.analysis,
+        rating: identifyOut.rating,
+        scores: identifyOut.scores,
+      });
+
+      setInStack(true);
+      Alert.alert('Success!', `${identifyOut.doc.name} has been added to your stack!`);
+    } catch (error: any) {
+      Alert.alert('Error', `Failed to add to stack: ${error.message}`);
     }
   };
 
@@ -90,7 +210,6 @@ export default function Home() {
       <View style={styles.header}>
         <View>
           <Text style={styles.h1}>Supp Scanner</Text>
-          <Text style={styles.status}>{statusText}</Text>
         </View>
         <TouchableOpacity
           style={styles.signOutButton}
@@ -130,17 +249,35 @@ export default function Home() {
         />
       </View>
 
-      <View style={styles.row}>
-        <Button
-          title="Scan again"
+      <View style={styles.buttonRow}>
+        <TouchableOpacity
+          style={styles.actionButton}
           onPress={() => {
             setScanned(false);
             lastCodeRef.current = null;
+            setInStack(false);
+            setIdentifyOut(null);
             setStatusText('camera ready — point at a barcode');
           }}
-        />
-        {loading && <ActivityIndicator />}
+        >
+          <Text style={styles.actionButtonText}>📷 Scan Again</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionButton, styles.galleryButton]}
+          onPress={handlePickImage}
+          disabled={loading}
+        >
+          <Text style={styles.actionButtonText}>🖼️ From Gallery</Text>
+        </TouchableOpacity>
       </View>
+
+      {loading && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007AFF" />
+          <Text style={styles.loadingText}>Processing...</Text>
+        </View>
+      )}
 
       <Text style={styles.h2}>Supplement Analysis</Text>
       {identifyOut?.analysis ? (
@@ -161,6 +298,22 @@ export default function Home() {
               resizeMode="contain"
             />
           )}
+
+          {/* Add to Stack button */}
+          <View style={styles.stackButtonContainer}>
+            {inStack ? (
+              <View style={styles.inStackBadge}>
+                <Text style={styles.inStackText}>✓ In Your Stack</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.addToStackButton}
+                onPress={handleAddToStack}
+              >
+                <Text style={styles.addToStackButtonText}>+ Add to Stack</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       ) : identifyOut ? (
         <Text>No supplement found for this barcode.</Text>
@@ -169,7 +322,7 @@ export default function Home() {
       )}
 
       <Text style={styles.tip}>
-        Tips: good light, hold ~15–25cm away, keep barcode straight. Test with a known EAN/UPC.
+        Tips: good light, hold ~15–25cm away, keep barcode straight. Or select an image from your gallery!
       </Text>
     </ScrollView>
   );
@@ -218,7 +371,36 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   scannerBox: { height: 320, borderRadius: 12, overflow: 'hidden', backgroundColor: '#000' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 6 },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginVertical: 8,
+  },
+  actionButton: {
+    flex: 1,
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  galleryButton: {
+    backgroundColor: '#28a745',
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  loadingText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#007AFF',
+  },
   tip: { fontSize: 12, color: '#777', marginTop: 8 },
   card: {
     padding: 12,
@@ -243,5 +425,35 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 8,
+  },
+  stackButtonContainer: {
+    width: '100%',
+    marginTop: 16,
+  },
+  addToStackButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  addToStackButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  inStackBadge: {
+    backgroundColor: '#e7f5e7',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#28a745',
+  },
+  inStackText: {
+    color: '#28a745',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

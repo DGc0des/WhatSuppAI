@@ -1,26 +1,26 @@
 import React, { useState, useCallback } from 'react';
-import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Modal, TextInput, ScrollView } from 'react-native';
+import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Modal, TextInput, ScrollView, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { getAllScannedSupplements, deleteScannedSupplement, type ScannedSupplement } from '../../lib/storage';
+import { getAllStack, removeFromStack, type Supplement } from '../../lib/storage';
 import { addScheduledSupplement } from '../../lib/scheduleStorage';
 
-export default function HistoryScreen() {
+export default function StackScreen() {
   const router = useRouter();
-  const [supplements, setSupplements] = useState<ScannedSupplement[]>([]);
+  const [supplements, setSupplements] = useState<Supplement[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   // Schedule modal state
   const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [selectedSupplement, setSelectedSupplement] = useState<ScannedSupplement | null>(null);
+  const [selectedSupplement, setSelectedSupplement] = useState<Supplement | null>(null);
   const [selectedTime, setSelectedTime] = useState('08:00');
   const [dosage, setDosage] = useState('');
   const [recurrenceType, setRecurrenceType] = useState<'once' | 'daily' | 'weekly'>('daily');
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]); // Default weekdays
 
   const loadSupplements = async () => {
-    const data = await getAllScannedSupplements();
+    const data = await getAllStack();
     setSupplements(data);
   };
 
@@ -37,11 +37,24 @@ export default function HistoryScreen() {
   };
 
   const handleDelete = async (id: number) => {
-    await deleteScannedSupplement(id);
-    await loadSupplements();
+    Alert.alert(
+      'Remove from Stack',
+      'Are you sure you want to remove this supplement from your stack?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            await removeFromStack(id);
+            await loadSupplements();
+          }
+        }
+      ]
+    );
   };
 
-  const openScheduleModal = (supplement: ScannedSupplement) => {
+  const openScheduleModal = (supplement: Supplement) => {
     setSelectedSupplement(supplement);
     setShowScheduleModal(true);
     // Reset to defaults
@@ -101,7 +114,7 @@ export default function HistoryScreen() {
     return '#dc3545';
   };
 
-  const renderItem = ({ item }: { item: ScannedSupplement }) => {
+  const renderItem = ({ item }: { item: Supplement }) => {
     const isExpanded = expandedId === item.id;
 
     return (

@@ -1,6 +1,7 @@
 import { supabase } from '../supabase-client';
 import { ensureAuthenticated } from './auth';
 import type { ScannedSupplement } from './storage';
+import type { NotificationTiming } from './notificationService';
 
 export interface ScheduledSupplement {
   id: number;
@@ -12,6 +13,9 @@ export interface ScheduledSupplement {
   recurrence_days: number[] | null;
   recurrence_end_date: string | null;
   dosage: string | null;
+  notification_enabled: boolean;
+  notification_timing: NotificationTiming;
+  notification_id: string | null;
   supplement: ScannedSupplement;
 }
 
@@ -26,7 +30,7 @@ export async function getScheduledSupplements(): Promise<ScheduledSupplement[]> 
       .from('ScheduledSupplements')
       .select(`
         *,
-        supplement:Scanned(*)
+        supplement:Stack(*)
       `)
       .eq('user_id', userId)
       .order('scheduled_date', { ascending: true });
@@ -47,6 +51,9 @@ export async function getScheduledSupplements(): Promise<ScheduledSupplement[]> 
       recurrence_days: item.recurrence_days || null,
       recurrence_end_date: item.recurrence_end_date || null,
       dosage: item.dosage || null,
+      notification_enabled: item.notification_enabled || false,
+      notification_timing: item.notification_timing || 'on-time',
+      notification_id: item.notification_id || null,
       supplement: item.supplement
     }));
 
@@ -72,7 +79,7 @@ export async function getScheduledSupplementsForDate(date: string): Promise<Sche
       .from('ScheduledSupplements')
       .select(`
         *,
-        supplement:Scanned(*)
+        supplement:Stack(*)
       `)
       .eq('user_id', userId)
       .gte('scheduled_date', startOfDay)
@@ -94,6 +101,9 @@ export async function getScheduledSupplementsForDate(date: string): Promise<Sche
       recurrence_days: item.recurrence_days || null,
       recurrence_end_date: item.recurrence_end_date || null,
       dosage: item.dosage || null,
+      notification_enabled: item.notification_enabled || false,
+      notification_timing: item.notification_timing || 'on-time',
+      notification_id: item.notification_id || null,
       supplement: item.supplement
     }));
 
@@ -113,7 +123,10 @@ export async function addScheduledSupplement(
   recurrenceType: 'once' | 'daily' | 'weekly' = 'once',
   recurrenceDays: number[] | null = null,
   recurrenceEndDate: string | null = null,
-  dosage: string | null = null
+  dosage: string | null = null,
+  notificationEnabled: boolean = false,
+  notificationTiming: NotificationTiming = 'on-time',
+  notificationId: string | null = null
 ): Promise<ScheduledSupplement | null> {
   try {
     const userId = await ensureAuthenticated();
@@ -128,10 +141,13 @@ export async function addScheduledSupplement(
         recurrence_days: recurrenceDays,
         recurrence_end_date: recurrenceEndDate,
         dosage: dosage,
+        notification_enabled: notificationEnabled,
+        notification_timing: notificationTiming,
+        notification_id: notificationId,
       })
       .select(`
         *,
-        supplement:Scanned(*)
+        supplement:Stack(*)
       `)
       .maybeSingle();
 
@@ -152,6 +168,9 @@ export async function addScheduledSupplement(
       recurrence_days: data.recurrence_days || null,
       recurrence_end_date: data.recurrence_end_date || null,
       dosage: data.dosage || null,
+      notification_enabled: data.notification_enabled || false,
+      notification_timing: data.notification_timing || 'on-time',
+      notification_id: data.notification_id || null,
       supplement: data.supplement
     };
   } catch (error) {
@@ -196,6 +215,9 @@ export async function updateScheduledSupplement(
     recurrence_days?: number[] | null;
     recurrence_end_date?: string | null;
     dosage?: string | null;
+    notification_enabled?: boolean;
+    notification_timing?: NotificationTiming;
+    notification_id?: string | null;
   }
 ): Promise<ScheduledSupplement | null> {
   try {
@@ -208,7 +230,7 @@ export async function updateScheduledSupplement(
       .eq('user_id', userId)
       .select(`
         *,
-        supplement:Scanned(*)
+        supplement:Stack(*)
       `)
       .maybeSingle();
 
@@ -229,6 +251,9 @@ export async function updateScheduledSupplement(
       recurrence_days: data.recurrence_days || null,
       recurrence_end_date: data.recurrence_end_date || null,
       dosage: data.dosage || null,
+      notification_enabled: data.notification_enabled || false,
+      notification_timing: data.notification_timing || 'on-time',
+      notification_id: data.notification_id || null,
       supplement: data.supplement
     };
   } catch (error) {

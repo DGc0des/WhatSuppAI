@@ -4,6 +4,7 @@ import { Calendar, DateData } from 'react-native-calendars';
 import { useFocusEffect } from '@react-navigation/native';
 import { getAllScannedSupplements, type ScannedSupplement } from '../../lib/storage';
 import { getScheduledSupplements, addScheduledSupplement, deleteScheduledSupplement, updateScheduledSupplement, type ScheduledSupplement } from '../../lib/scheduleStorage';
+import { scheduleSupplementNotification, cancelNotification, getAllScheduledNotifications, type NotificationTiming } from '../../lib/notificationService';
 
 export default function CalendarScreen() {
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -80,21 +81,11 @@ export default function CalendarScreen() {
       [
         {
           text: 'Once',
-          onPress: async () => {
-            const dateTime = `${selectedDate}T${time}:00`;
-            await addScheduledSupplement(supplementId, dateTime, 'once', null, null, dosage);
-            await loadData();
-            setShowAddModal(false);
-          }
+          onPress: () => handleNotificationSettings(supplementId, time, dosage, 'once', null)
         },
         {
           text: 'Every Day',
-          onPress: async () => {
-            const dateTime = `${selectedDate}T${time}:00`;
-            await addScheduledSupplement(supplementId, dateTime, 'daily', null, null, dosage);
-            await loadData();
-            setShowAddModal(false);
-          }
+          onPress: () => handleNotificationSettings(supplementId, time, dosage, 'daily', null)
         },
         {
           text: 'Specific Days',
@@ -108,6 +99,148 @@ export default function CalendarScreen() {
     );
   };
 
+  const handleNotificationSettings = (
+    supplementId: number,
+    time: string,
+    dosage: string | null,
+    recurrenceType: 'once' | 'daily' | 'weekly',
+    recurrenceDays: number[] | null
+  ) => {
+    Alert.alert(
+      'Notification',
+      'Do you want to be reminded to take this supplement?',
+      [
+        {
+          text: 'No Reminder',
+          onPress: async () => {
+            const dateTime = `${selectedDate}T${time}:00`;
+            await addScheduledSupplement(
+              supplementId,
+              dateTime,
+              recurrenceType,
+              recurrenceDays,
+              null,
+              dosage,
+              false,
+              'on-time',
+              null
+            );
+            await loadData();
+            setShowAddModal(false);
+          }
+        },
+        {
+          text: 'Remind Me',
+          onPress: () => handleNotificationTiming(supplementId, time, dosage, recurrenceType, recurrenceDays)
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }
+      ]
+    );
+  };
+
+  const handleNotificationTiming = (
+    supplementId: number,
+    time: string,
+    dosage: string | null,
+    recurrenceType: 'once' | 'daily' | 'weekly',
+    recurrenceDays: number[] | null
+  ) => {
+    Alert.alert(
+      'Reminder Time',
+      'When would you like to be reminded?',
+      [
+        {
+          text: 'At scheduled time',
+          onPress: () => scheduleWithNotification(
+            supplementId,
+            time,
+            dosage,
+            recurrenceType,
+            recurrenceDays,
+            'on-time'
+          )
+        },
+        {
+          text: '30 minutes before',
+          onPress: () => scheduleWithNotification(
+            supplementId,
+            time,
+            dosage,
+            recurrenceType,
+            recurrenceDays,
+            '30-min-before'
+          )
+        },
+        {
+          text: '1 hour before',
+          onPress: () => scheduleWithNotification(
+            supplementId,
+            time,
+            dosage,
+            recurrenceType,
+            recurrenceDays,
+            '1-hour-before'
+          )
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }
+      ]
+    );
+  };
+
+  const scheduleWithNotification = async (
+    supplementId: number,
+    time: string,
+    dosage: string | null,
+    recurrenceType: 'once' | 'daily' | 'weekly',
+    recurrenceDays: number[] | null,
+    notificationTiming: NotificationTiming
+  ) => {
+    const dateTime = `${selectedDate}T${time}:00`;
+    const supplement = allSupplements.find(s => s.id === supplementId);
+
+    if (!supplement) {
+      Alert.alert('Error', 'Supplement not found');
+      return;
+    }
+
+    // Schedule the notification
+    const notificationId = await scheduleSupplementNotification(
+      supplement.name,
+      supplement.brand,
+      new Date(dateTime),
+      notificationTiming,
+      dosage
+    );
+
+    // Add to database with notification info
+    await addScheduledSupplement(
+      supplementId,
+      dateTime,
+      recurrenceType,
+      recurrenceDays,
+      null,
+      dosage,
+      true,
+      notificationTiming,
+      notificationId
+    );
+
+    await loadData();
+    setShowAddModal(false);
+
+    if (notificationId) {
+      Alert.alert('Success', 'Supplement scheduled with reminder!');
+    } else {
+      Alert.alert('Scheduled', 'Supplement scheduled, but notification permission may be needed.');
+    }
+  };
+
   const handleWeeklySchedule = (supplementId: number, time: string, dosage: string | null) => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -117,11 +250,11 @@ export default function CalendarScreen() {
       [
         ...days.map((day, index) => ({
           text: day,
-          onPress: () => handleDaySelection(supplementId, time, [index], dosage)
+          onPress: () => handleNotificationSettings(supplementId, time, dosage, 'weekly', [index])
         })),
         {
           text: 'All Weekdays (Mon-Fri)',
-          onPress: () => handleDaySelection(supplementId, time, [1, 2, 3, 4, 5], dosage)
+          onPress: () => handleNotificationSettings(supplementId, time, dosage, 'weekly', [1, 2, 3, 4, 5])
         },
         {
           text: 'Cancel',
@@ -131,16 +264,10 @@ export default function CalendarScreen() {
     );
   };
 
-  const handleDaySelection = async (supplementId: number, time: string, days: number[], dosage: string | null) => {
-    if (!selectedDate) return;
-
-    const dateTime = `${selectedDate}T${time}:00`;
-    await addScheduledSupplement(supplementId, dateTime, 'weekly', days, null, dosage);
-    await loadData();
-    setShowAddModal(false);
-  };
-
   const handleDeleteSchedule = async (scheduleId: number) => {
+    // Find the schedule to get notification ID
+    const schedule = scheduledSupplements.find(s => s.id === scheduleId);
+
     Alert.alert(
       'Delete Schedule',
       'Are you sure you want to remove this scheduled supplement?',
@@ -150,6 +277,10 @@ export default function CalendarScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
+            // Cancel notification if it exists
+            if (schedule?.notification_id) {
+              await cancelNotification(schedule.notification_id);
+            }
             await deleteScheduledSupplement(scheduleId);
             await loadData();
           }
@@ -280,6 +411,104 @@ export default function CalendarScreen() {
     );
   };
 
+  const handleUpdateNotification = (schedule: ScheduledSupplement) => {
+    if (schedule.notification_enabled) {
+      // Already has notification - offer to change or disable
+      Alert.alert(
+        'Notification Settings',
+        `Current: ${schedule.notification_timing === 'on-time' ? 'At scheduled time' : schedule.notification_timing === '30-min-before' ? '30 minutes before' : '1 hour before'}`,
+        [
+          {
+            text: 'Change Timing',
+            onPress: () => handleChangeNotificationTiming(schedule)
+          },
+          {
+            text: 'Turn Off',
+            style: 'destructive',
+            onPress: async () => {
+              // Cancel the notification
+              if (schedule.notification_id) {
+                await cancelNotification(schedule.notification_id);
+              }
+              await updateScheduledSupplement(schedule.id, {
+                notification_enabled: false,
+                notification_id: null
+              });
+              await loadData();
+              Alert.alert('Success', 'Notification turned off');
+            }
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          }
+        ]
+      );
+    } else {
+      // No notification - offer to enable
+      handleChangeNotificationTiming(schedule);
+    }
+  };
+
+  const handleChangeNotificationTiming = (schedule: ScheduledSupplement) => {
+    Alert.alert(
+      'Reminder Time',
+      'When would you like to be reminded?',
+      [
+        {
+          text: 'At scheduled time',
+          onPress: () => updateNotificationTiming(schedule, 'on-time')
+        },
+        {
+          text: '30 minutes before',
+          onPress: () => updateNotificationTiming(schedule, '30-min-before')
+        },
+        {
+          text: '1 hour before',
+          onPress: () => updateNotificationTiming(schedule, '1-hour-before')
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }
+      ]
+    );
+  };
+
+  const updateNotificationTiming = async (
+    schedule: ScheduledSupplement,
+    timing: NotificationTiming
+  ) => {
+    // Cancel old notification if exists
+    if (schedule.notification_id) {
+      await cancelNotification(schedule.notification_id);
+    }
+
+    // Schedule new notification
+    const notificationId = await scheduleSupplementNotification(
+      schedule.supplement.name,
+      schedule.supplement.brand,
+      new Date(schedule.scheduled_date),
+      timing,
+      schedule.dosage
+    );
+
+    // Update database
+    await updateScheduledSupplement(schedule.id, {
+      notification_enabled: true,
+      notification_timing: timing,
+      notification_id: notificationId
+    });
+
+    await loadData();
+
+    if (notificationId) {
+      Alert.alert('Success', 'Notification updated!');
+    } else {
+      Alert.alert('Note', 'Notification settings saved, but permission may be needed.');
+    }
+  };
+
   const getSupplementsForDate = () => {
     if (!selectedDate) return [];
 
@@ -323,6 +552,20 @@ export default function CalendarScreen() {
       return null;
     };
 
+    const getNotificationLabel = () => {
+      if (!item.notification_enabled) return null;
+
+      switch (item.notification_timing) {
+        case '30-min-before':
+          return '🔔 30 min before';
+        case '1-hour-before':
+          return '🔔 1 hour before';
+        case 'on-time':
+        default:
+          return '🔔 At time';
+      }
+    };
+
     return (
       <TouchableOpacity
         style={styles.scheduledCard}
@@ -342,6 +585,10 @@ export default function CalendarScreen() {
               {
                 text: 'Change Frequency',
                 onPress: () => handleUpdateRecurrence(item)
+              },
+              {
+                text: item.notification_enabled ? 'Edit Notification' : 'Add Notification',
+                onPress: () => handleUpdateNotification(item)
               },
               {
                 text: 'Delete',
@@ -374,6 +621,9 @@ export default function CalendarScreen() {
             )}
             {getRecurrenceLabel() && (
               <Text style={styles.recurrenceLabel}>{getRecurrenceLabel()}</Text>
+            )}
+            {getNotificationLabel() && (
+              <Text style={styles.notificationLabel}>{getNotificationLabel()}</Text>
             )}
           </View>
         </View>
@@ -417,12 +667,26 @@ export default function CalendarScreen() {
               day: 'numeric'
             }) : 'Select a date'}
           </Text>
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => setShowAddModal(true)}
-          >
-            <Text style={styles.addButtonText}>+ Add</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: '#6c757d' }]}
+              onPress={async () => {
+                const notifs = await getAllScheduledNotifications();
+                Alert.alert(
+                  'Debug: Scheduled Notifications',
+                  `Total: ${notifs.length}\n\nCheck console for details`
+                );
+              }}
+            >
+              <Text style={styles.addButtonText}>Debug</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => setShowAddModal(true)}
+            >
+              <Text style={styles.addButtonText}>+ Add</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {getSupplementsForDate().length === 0 ? (
@@ -623,6 +887,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#007AFF',
     marginTop: 4,
+    fontWeight: '600',
+  },
+  notificationLabel: {
+    fontSize: 11,
+    color: '#ff9500',
+    marginTop: 2,
     fontWeight: '600',
   },
   deleteButton: {

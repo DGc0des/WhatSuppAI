@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { askGpt } from '../../lib/api';
-import { getAllScannedSupplements, type ScannedSupplement } from '../../lib/storage';
+import { getAllStack, type Supplement } from '../../lib/storage';
 import { getScheduledSupplements, addScheduledSupplement, type ScheduledSupplement } from '../../lib/scheduleStorage';
 
 interface ScheduleAction {
@@ -44,7 +44,7 @@ export default function ChatScreen() {
   ]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [scannedSupplements, setScannedSupplements] = useState<ScannedSupplement[]>([]);
+  const [scannedSupplements, setScannedSupplements] = useState<Supplement[]>([]);
   const [scheduledSupplements, setScheduledSupplements] = useState<ScheduledSupplement[]>([]);
   const flatListRef = useRef<FlatList>(null);
 
@@ -56,9 +56,9 @@ export default function ChatScreen() {
   );
 
   const loadData = async () => {
-    const scanned = await getAllScannedSupplements();
+    const stack = await getAllStack();
     const scheduled = await getScheduledSupplements();
-    setScannedSupplements(scanned);
+    setScannedSupplements(stack);
     setScheduledSupplements(scheduled);
   };
 
@@ -171,7 +171,7 @@ export default function ChatScreen() {
 
       const supplementPrompt = `You are a knowledgeable supplement and nutrition expert. You have FULL ACCESS to the user's personal supplement data shown below.
 
-===USER'S SCANNED SUPPLEMENTS===
+===USER'S SUPPLEMENT STACK===
 ${scannedList}
 
 ===USER'S CURRENT SCHEDULE===
@@ -180,15 +180,15 @@ ${scheduledList}
 ===USER QUESTION===
 "${userMessage.content}"
 
-IMPORTANT: When the user asks about "their supplements" or "what they have scanned", refer to the list above. This is THEIR personal data that you CAN see and access.
+IMPORTANT: When the user asks about "their supplements" or "their stack", refer to the list above. This is THEIR personal data that you CAN see and access.
 
 INSTRUCTIONS:
-1. If asked about their supplements, list what's shown in "SCANNED SUPPLEMENTS" above
+1. If asked about their supplements, list what's shown in "SUPPLEMENT STACK" above
 2. If the user asks to schedule supplements or optimize timing, suggest specific schedules
 3. When suggesting schedules, format your response with clear action items using this EXACT format:
 
    [SCHEDULE_ACTION]
-   - Supplement: [exact name from scanned list]
+   - Supplement: [exact name from stack list]
    - Time: [HH:MM]
    - Dosage: [e.g., "2 capsules", "1 tablet"]
    - Frequency: [once/daily/weekly]
