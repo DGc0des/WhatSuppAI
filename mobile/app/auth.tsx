@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { supabase } from "../supabase-client";
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
 
 export default function AuthScreen() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme ?? 'light'];
   const [isSignUp, setIsSignUp] = useState(false);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
@@ -10,6 +14,8 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  const styles = createStyles(theme);
 
   const handleAuth = async () => {
     try {
@@ -123,7 +129,7 @@ export default function AuthScreen() {
             <TextInput
               style={styles.input}
               placeholder="Enter your email"
-              placeholderTextColor="#999"
+              placeholderTextColor={theme.inputPlaceholder}
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
@@ -138,7 +144,7 @@ export default function AuthScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Enter your password"
-                placeholderTextColor="#999"
+                placeholderTextColor={theme.inputPlaceholder}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
@@ -195,10 +201,10 @@ export default function AuthScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
   },
   scrollContainer: {
     flexGrow: 1,
@@ -215,13 +221,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     marginBottom: 8,
-    color: '#000',
+    color: theme.text,
   },
   subtitle: {
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 40,
-    color: '#666',
+    color: theme.textSecondary,
   },
   inputContainer: {
     marginBottom: 20,
@@ -230,18 +236,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 8,
-    color: '#333',
+    color: theme.text,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: theme.inputBorder,
     borderRadius: 8,
     padding: 16,
     fontSize: 16,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: theme.inputBackground,
+    color: theme.text,
   },
   button: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     paddingVertical: 16,
     borderRadius: 8,
     marginTop: 10,
@@ -262,11 +269,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   toggleText: {
-    color: '#666',
+    color: theme.textSecondary,
     fontSize: 14,
   },
   toggleLink: {
-    color: '#007AFF',
+    color: theme.buttonPrimary,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -275,19 +282,23 @@ const styles = StyleSheet.create({
   },
   errorTextContainer: {
     padding: 12,
-    backgroundColor: '#ffe6e6',
+    backgroundColor: theme.background,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.error,
   },
   errorText: {
-    color: '#dc3545',
+    color: theme.error,
     fontSize: 14,
     textAlign: 'center',
     padding: 12,
-    backgroundColor: '#ffe6e6',
+    backgroundColor: theme.background,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.error,
   },
   errorLinkInline: {
-    color: '#007AFF',
+    color: theme.buttonPrimary,
     fontWeight: '700',
     textDecorationLine: 'underline',
   },
@@ -296,19 +307,21 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   errorLinkText: {
-    color: '#007AFF',
+    color: theme.buttonPrimary,
     fontSize: 14,
     fontWeight: '600',
     textDecorationLine: 'underline',
   },
   successText: {
-    color: '#28a745',
+    color: theme.success,
     fontSize: 14,
     marginBottom: 16,
     textAlign: 'center',
     padding: 12,
-    backgroundColor: '#d4edda',
+    backgroundColor: theme.successLight,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.success,
   },
   forgotPasswordButton: {
     alignSelf: 'flex-end',
@@ -316,7 +329,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   forgotPasswordText: {
-    color: '#007AFF',
+    color: theme.buttonPrimary,
     fontSize: 14,
     fontWeight: '600',
   },

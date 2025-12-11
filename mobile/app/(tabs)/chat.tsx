@@ -12,6 +12,8 @@ import {
   Alert,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
 import { askGpt } from '../../lib/api';
 import { getAllStack, type Supplement } from '../../lib/storage';
 import { getScheduledSupplements, addScheduledSupplement, type ScheduledSupplement } from '../../lib/scheduleStorage';
@@ -34,6 +36,10 @@ interface Message {
 }
 
 export default function ChatScreen() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme ?? 'light'];
+  const styles = createStyles(theme);
+
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -352,7 +358,6 @@ Provide your expert advice:`;
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={90}
     >
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Supplement Expert</Text>
@@ -372,7 +377,7 @@ Provide your expert advice:`;
 
       {loading && (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color="#007AFF" />
+          <ActivityIndicator size="small" color={theme.buttonPrimary} />
           <Text style={styles.loadingText}>Thinking...</Text>
         </View>
       )}
@@ -383,7 +388,7 @@ Provide your expert advice:`;
           value={inputText}
           onChangeText={setInputText}
           placeholder="Ask about supplements or say 'schedule my supplements'..."
-          placeholderTextColor="#999"
+          placeholderTextColor={theme.inputPlaceholder}
           multiline
           maxLength={500}
           editable={!loading}
@@ -402,13 +407,13 @@ Provide your expert advice:`;
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: theme.background,
   },
   header: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     paddingTop: 50,
     paddingBottom: 16,
     paddingHorizontal: 16,
@@ -427,7 +432,7 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#e0e0e0',
+    color: 'rgba(255, 255, 255, 0.8)',
     marginTop: 4,
   },
   messagesList: {
@@ -447,16 +452,18 @@ const styles = StyleSheet.create({
   },
   systemMessageContainer: {
     alignSelf: 'center',
-    backgroundColor: '#e3f2fd',
+    backgroundColor: theme.cardBackground,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 16,
     marginVertical: 8,
     maxWidth: '90%',
+    borderWidth: 1,
+    borderColor: theme.border,
   },
   systemMessage: {
     fontSize: 14,
-    color: '#1976d2',
+    color: theme.info,
     textAlign: 'center',
     lineHeight: 20,
   },
@@ -471,12 +478,14 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   userBubble: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     borderBottomRightRadius: 4,
   },
   assistantBubble: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.cardBackground,
     borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: theme.border,
   },
   messageText: {
     fontSize: 15,
@@ -486,11 +495,11 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   assistantText: {
-    color: '#000',
+    color: theme.text,
   },
   timestamp: {
     fontSize: 10,
-    color: '#999',
+    color: theme.textMuted,
     marginTop: 4,
     alignSelf: 'flex-end',
   },
@@ -499,7 +508,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   actionButton: {
-    backgroundColor: '#28a745',
+    backgroundColor: theme.buttonSecondary,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
@@ -516,12 +525,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   secondaryActionButton: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     borderWidth: 1,
-    borderColor: '#28a745',
+    borderColor: theme.buttonSecondary,
   },
   secondaryActionButtonText: {
-    color: '#28a745',
+    color: theme.buttonSecondary,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -534,29 +543,29 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
-    color: '#007AFF',
+    color: theme.buttonPrimary,
   },
   inputContainer: {
     flexDirection: 'row',
     padding: 12,
-    backgroundColor: '#fff',
+    backgroundColor: theme.cardBackground,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    borderTopColor: theme.border,
     alignItems: 'flex-end',
     gap: 8,
   },
   input: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: theme.inputBackground,
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 15,
     maxHeight: 100,
-    color: '#000',
+    color: theme.text,
   },
   sendButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
@@ -565,7 +574,7 @@ const styles = StyleSheet.create({
     minWidth: 60,
   },
   sendButtonDisabled: {
-    backgroundColor: '#ccc',
+    backgroundColor: theme.buttonDisabled,
   },
   sendButtonText: {
     color: '#fff',

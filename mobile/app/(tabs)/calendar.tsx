@@ -5,6 +5,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { getAllScannedSupplements, type ScannedSupplement } from '../../lib/storage';
 import { getScheduledSupplements, addScheduledSupplement, deleteScheduledSupplement, updateScheduledSupplement, type ScheduledSupplement } from '../../lib/scheduleStorage';
 import { scheduleSupplementNotification, cancelNotification, type NotificationTiming } from '../../lib/notificationService';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
 
 const MEASUREMENT_UNITS = [
   { label: 'capsule(s)', value: 'capsule', needsPlural: true },
@@ -24,6 +26,9 @@ const MEASUREMENT_UNITS = [
 ];
 
 export default function CalendarScreen() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme ?? 'light'];
+
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [scheduledSupplements, setScheduledSupplements] = useState<ScheduledSupplement[]>([]);
   const [allSupplements, setAllSupplements] = useState<ScannedSupplement[]>([]);
@@ -41,6 +46,8 @@ export default function CalendarScreen() {
     scheduleId?: number;
   } | null>(null);
 
+  const styles = createStyles(theme);
+
   const loadData = async () => {
     const scheduled = await getScheduledSupplements();
     const supplements = await getAllScannedSupplements();
@@ -52,7 +59,7 @@ export default function CalendarScreen() {
     scheduled.forEach(item => {
       const dateKey = item.scheduled_date.split('T')[0];
       if (!marks[dateKey]) {
-        marks[dateKey] = { marked: true, dotColor: '#007AFF' };
+        marks[dateKey] = { marked: true, dotColor: theme.calendarDot };
       }
     });
     setMarkedDates(marks);
@@ -785,26 +792,39 @@ export default function CalendarScreen() {
         <Text style={styles.title}>Supplement Schedule</Text>
       </View>
 
-      <Calendar
-        current={selectedDate}
-        onDayPress={handleDayPress}
-        markedDates={{
-          ...markedDates,
-          [selectedDate]: {
-            ...markedDates[selectedDate],
-            selected: true,
-            selectedColor: '#007AFF'
-          }
-        }}
-        theme={{
-          todayTextColor: '#007AFF',
-          selectedDayBackgroundColor: '#007AFF',
-          selectedDayTextColor: '#ffffff',
-          arrowColor: '#007AFF',
-          monthTextColor: '#000',
-          textMonthFontWeight: 'bold',
-        }}
-      />
+      <View style={{ backgroundColor: theme.background }}>
+        <Calendar
+          key={colorScheme}
+          current={selectedDate}
+          onDayPress={handleDayPress}
+          markedDates={{
+            ...markedDates,
+            [selectedDate]: {
+              ...markedDates[selectedDate],
+              selected: true,
+              selectedColor: theme.calendarSelected
+            }
+          }}
+          style={{
+            backgroundColor: theme.background,
+          }}
+          theme={{
+            todayTextColor: theme.calendarSelected,
+            selectedDayBackgroundColor: theme.calendarSelected,
+            selectedDayTextColor: colorScheme === 'dark' ? theme.background : '#ffffff',
+            arrowColor: theme.calendarSelected,
+            monthTextColor: theme.text,
+            textMonthFontWeight: 'bold',
+            backgroundColor: theme.background,
+            calendarBackground: theme.background,
+            textSectionTitleColor: theme.textSecondary,
+            dayTextColor: theme.text,
+            textDisabledColor: theme.textMuted,
+            dotColor: theme.calendarDot,
+            selectedDotColor: colorScheme === 'dark' ? theme.background : '#ffffff',
+          }}
+        />
+      </View>
 
       <View style={styles.scheduleSection}>
         <View style={styles.scheduleSectionHeader}>
@@ -1031,22 +1051,23 @@ export default function CalendarScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
   },
   header: {
     paddingTop: 60,
     paddingHorizontal: 20,
     paddingBottom: 20,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.cardBackground,
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
+    borderBottomColor: theme.borderLight,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
+    color: theme.text,
   },
   scheduleSection: {
     flex: 1,
@@ -1061,10 +1082,10 @@ const styles = StyleSheet.create({
   scheduleSectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#333',
+    color: theme.text,
   },
   addButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
@@ -1078,12 +1099,12 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   scheduledCard: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.cardBackground,
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#dee2e6',
+    borderColor: theme.cardBorder,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -1098,7 +1119,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 8,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.inputBackground,
   },
   scheduledInfo: {
     flex: 1,
@@ -1108,38 +1129,39 @@ const styles = StyleSheet.create({
   scheduledTime: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#007AFF',
+    color: theme.buttonPrimary,
     marginBottom: 2,
   },
   scheduledName: {
     fontSize: 14,
     fontWeight: '600',
+    color: theme.text,
     marginBottom: 2,
   },
   scheduledBrand: {
     fontSize: 12,
-    color: '#6c757d',
+    color: theme.textMuted,
   },
   dosageLabel: {
     fontSize: 11,
-    color: '#28a745',
+    color: theme.success,
     marginTop: 2,
     fontWeight: '600',
   },
   recurrenceLabel: {
     fontSize: 11,
-    color: '#007AFF',
+    color: theme.buttonPrimary,
     marginTop: 4,
     fontWeight: '600',
   },
   notificationLabel: {
     fontSize: 11,
-    color: '#ff9500',
+    color: theme.warning,
     marginTop: 2,
     fontWeight: '600',
   },
   deleteButton: {
-    backgroundColor: '#dc3545',
+    backgroundColor: theme.buttonDanger,
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 6,
@@ -1159,22 +1181,22 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#495057',
+    color: theme.textSecondary,
     marginBottom: 4,
     textAlign: 'center',
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#6c757d',
+    color: theme.textMuted,
     textAlign: 'center',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: theme.modalOverlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
@@ -1189,22 +1211,23 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: '700',
+    color: theme.text,
   },
   modalClose: {
     fontSize: 24,
-    color: '#6c757d',
+    color: theme.textMuted,
   },
   modalSubtitle: {
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 12,
-    color: '#333',
+    color: theme.text,
   },
   timeSelector: {
     marginBottom: 20,
   },
   timeButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 8,
@@ -1221,7 +1244,7 @@ const styles = StyleSheet.create({
   supplementItem: {
     flexDirection: 'row',
     padding: 12,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.cardBackground,
     borderRadius: 8,
     marginBottom: 8,
     alignItems: 'center',
@@ -1230,7 +1253,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 6,
-    backgroundColor: '#fff',
+    backgroundColor: theme.inputBackground,
   },
   supplementItemInfo: {
     flex: 1,
@@ -1239,15 +1262,16 @@ const styles = StyleSheet.create({
   supplementItemName: {
     fontSize: 14,
     fontWeight: '600',
+    color: theme.text,
     marginBottom: 2,
   },
   supplementItemBrand: {
     fontSize: 12,
-    color: '#6c757d',
+    color: theme.textMuted,
   },
   // Dosage Modal styles
   dosageModalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
@@ -1266,16 +1290,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 10,
-    color: '#333',
+    color: theme.text,
   },
   dosageInput: {
     borderWidth: 1,
-    borderColor: '#dee2e6',
+    borderColor: theme.inputBorder,
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.inputBackground,
+    color: theme.text,
   },
   dosageUnitSection: {
     marginBottom: 20,
@@ -1294,18 +1319,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#dee2e6',
-    backgroundColor: '#fff',
+    borderColor: theme.border,
+    backgroundColor: theme.cardBackground,
     marginRight: 8,
     marginBottom: 8,
   },
   unitChipSelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
+    borderColor: theme.buttonPrimary,
   },
   unitChipText: {
     fontSize: 14,
-    color: '#495057',
+    color: theme.textSecondary,
     fontWeight: '500',
   },
   unitChipTextSelected: {
@@ -1313,22 +1338,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   dosagePreview: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.cardBackground,
     padding: 16,
     borderRadius: 8,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: theme.cardBorder,
   },
   dosagePreviewLabel: {
     fontSize: 12,
-    color: '#6c757d',
+    color: theme.textMuted,
     marginBottom: 4,
     fontWeight: '500',
   },
   dosagePreviewText: {
     fontSize: 18,
-    color: '#000',
+    color: theme.text,
     fontWeight: '600',
   },
   dosageModalButtons: {
@@ -1342,17 +1367,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dosageButtonCancel: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.cardBackground,
     borderWidth: 1,
-    borderColor: '#dee2e6',
+    borderColor: theme.border,
   },
   dosageButtonConfirm: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
   },
   dosageButtonCancelText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#495057',
+    color: theme.textSecondary,
   },
   dosageButtonConfirmText: {
     fontSize: 16,

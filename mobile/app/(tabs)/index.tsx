@@ -5,7 +5,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { identify } from '../../lib/api';
 import { saveScannedSupplement, addToStack, isInStack } from '../../lib/storage';
 import { signOut } from '../../lib/auth';
-
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
 
 import { Redirect } from 'expo-router';
 export  function Index() {
@@ -14,6 +15,9 @@ export  function Index() {
 
 
 export default function Home() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme ?? 'light'];
+
   const [permission, requestPermission] = useCameraPermissions();
   const [statusText, setStatusText] = useState('booting…');
   const [scanned, setScanned] = useState(false);
@@ -22,6 +26,8 @@ export default function Home() {
   const [inStack, setInStack] = useState(false);
   const lastCodeRef = useRef<string | null>(null);
   const lastLogRef = useRef<number>(0);
+
+  const styles = createStyles(theme);
 
   useEffect(() => {
     if (!permission) return;
@@ -274,16 +280,16 @@ export default function Home() {
 
       {loading && (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <ActivityIndicator size="large" color={theme.buttonPrimary} />
           <Text style={styles.loadingText}>Processing...</Text>
         </View>
       )}
 
       <Text style={styles.h2}>Supplement Analysis</Text>
       {identifyOut?.analysis ? (
-        <Text>{identifyOut.analysis}</Text>
+        <Text style={{ color: theme.text }}>{identifyOut.analysis}</Text>
       ) : (
-        <Text>No analysis available.</Text>
+        <Text style={{ color: theme.textMuted }}>No analysis available.</Text>
       )}
 
       <Text style={styles.h2}>Supplement Info</Text>
@@ -316,9 +322,9 @@ export default function Home() {
           </View>
         </View>
       ) : identifyOut ? (
-        <Text>No supplement found for this barcode.</Text>
+        <Text style={{ color: theme.textMuted }}>No supplement found for this barcode.</Text>
       ) : (
-        <Text>—</Text>
+        <Text style={{ color: theme.textMuted }}>—</Text>
       )}
 
       <Text style={styles.tip}>
@@ -337,15 +343,19 @@ function mapType(type: string) {
   return 'unknown';
 }
 
-const Center = ({ children }: { children: React.ReactNode }) =>
-  <View style={[styles.scrollContainer, { justifyContent: 'center', alignItems: 'center' }]}>{children}</View>;
+const Center = ({ children }: { children: React.ReactNode }) => {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme ?? 'light'];
+  const styles = createStyles(theme);
+  return <View style={[styles.scrollContainer, { justifyContent: 'center', alignItems: 'center' }]}>{children}</View>;
+};
 
-const styles = StyleSheet.create({
+const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
     paddingTop: 40,
     paddingHorizontal: 12,
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     gap: 8,
   },
   header: {
@@ -354,19 +364,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  h1: { fontSize: 20, fontWeight: '700' },
-  h2: { fontSize: 16, fontWeight: '600', marginTop: 12 },
-  status: { color: '#555' },
+  h1: { fontSize: 20, fontWeight: '700', color: theme.text },
+  h2: { fontSize: 16, fontWeight: '600', marginTop: 12, color: theme.text },
+  status: { color: theme.textSecondary },
   signOutButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     borderWidth: 1,
-    borderColor: '#dc3545',
+    borderColor: theme.buttonDanger,
     borderRadius: 8,
   },
   signOutText: {
-    color: '#dc3545',
+    color: theme.buttonDanger,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -378,14 +388,14 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 10,
     alignItems: 'center',
   },
   galleryButton: {
-    backgroundColor: '#28a745',
+    backgroundColor: theme.buttonSecondary,
   },
   actionButtonText: {
     color: '#fff',
@@ -399,15 +409,15 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 8,
     fontSize: 14,
-    color: '#007AFF',
+    color: theme.buttonPrimary,
   },
-  tip: { fontSize: 12, color: '#777', marginTop: 8 },
+  tip: { fontSize: 12, color: theme.textLight, marginTop: 8 },
   card: {
     padding: 12,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: theme.cardBorder,
     borderRadius: 12,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: theme.cardBackground,
     marginTop: 8,
     alignItems: 'center',
   },
@@ -415,10 +425,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 4,
+    color: theme.text,
   },
   brand: {
     fontSize: 14,
-    color: '#555',
+    color: theme.textSecondary,
     marginBottom: 8,
   },
   image: {
@@ -431,7 +442,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   addToStackButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 10,
@@ -443,16 +454,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   inStackBadge: {
-    backgroundColor: '#e7f5e7',
+    backgroundColor: theme.successLight,
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 10,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#28a745',
+    borderColor: theme.success,
   },
   inStackText: {
-    color: '#28a745',
+    color: theme.success,
     fontSize: 16,
     fontWeight: '600',
   },

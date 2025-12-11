@@ -2,8 +2,14 @@ import React, { useState, useCallback } from 'react';
 import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getAllHistory, deleteFromHistory, addToStack, isInStack, type Supplement } from '../../lib/storage';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
 
 export default function HistoryScreen() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme ?? 'light'];
+  const styles = createStyles(theme);
+
   const [history, setHistory] = useState<Supplement[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [inStack, setInStack] = useState<Set<string>>(new Set());
@@ -151,26 +157,27 @@ export default function HistoryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: theme.background,
   },
   header: {
     paddingTop: 60,
     paddingBottom: 16,
     paddingHorizontal: 16,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.cardBackground,
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
+    borderBottomColor: theme.borderLight,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
+    color: theme.text,
   },
   subtitle: {
     fontSize: 14,
-    color: '#6c757d',
+    color: theme.textMuted,
     marginTop: 4,
   },
   flatList: {
@@ -181,10 +188,12 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.cardBackground,
     borderRadius: 12,
     padding: 12,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: theme.cardBorder,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -199,7 +208,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 8,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.inputBackground,
   },
   cardContent: {
     flex: 1,
@@ -209,20 +218,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 4,
+    color: theme.text,
   },
   brand: {
     fontSize: 14,
-    color: '#6c757d',
+    color: theme.textMuted,
     marginBottom: 4,
   },
   rating: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#ffa500',
+    color: theme.warning,
   },
   analysis: {
     fontSize: 13,
-    color: '#495057',
+    color: theme.textSecondary,
     marginTop: 12,
     lineHeight: 18,
   },
@@ -233,7 +243,7 @@ const styles = StyleSheet.create({
   },
   addButton: {
     flex: 1,
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
@@ -245,15 +255,15 @@ const styles = StyleSheet.create({
   },
   inStackBadge: {
     flex: 1,
-    backgroundColor: '#e7f5e7',
+    backgroundColor: theme.successLight,
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#28a745',
+    borderColor: theme.success,
   },
   inStackText: {
-    color: '#28a745',
+    color: theme.success,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -261,13 +271,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.cardBackground,
     borderWidth: 1,
-    borderColor: '#dee2e6',
+    borderColor: theme.border,
     alignItems: 'center',
   },
   deleteButtonText: {
-    color: '#dc3545',
+    color: theme.buttonDanger,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -280,12 +290,12 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#6c757d',
+    color: theme.textMuted,
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#adb5bd',
+    color: theme.textLight,
     textAlign: 'center',
   },
 });

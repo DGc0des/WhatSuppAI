@@ -2,12 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../supabase-client';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme ?? 'light'];
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const styles = createStyles(theme);
 
   useEffect(() => {
     // Check if there's a valid session from the password reset link
@@ -75,7 +81,7 @@ export default function ResetPasswordScreen() {
           <TextInput
             style={styles.input}
             placeholder="Enter new password"
-            placeholderTextColor="#999"
+            placeholderTextColor={theme.inputPlaceholder}
             value={newPassword}
             onChangeText={setNewPassword}
             secureTextEntry
@@ -89,7 +95,7 @@ export default function ResetPasswordScreen() {
           <TextInput
             style={styles.input}
             placeholder="Confirm new password"
-            placeholderTextColor="#999"
+            placeholderTextColor={theme.inputPlaceholder}
             value={confirmPassword}
             onChangeText={setConfirmPassword}
             secureTextEntry
@@ -119,10 +125,10 @@ export default function ResetPasswordScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     justifyContent: 'center',
     padding: 20,
   },
@@ -136,13 +142,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     marginBottom: 8,
-    color: '#000',
+    color: theme.text,
   },
   subtitle: {
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 40,
-    color: '#666',
+    color: theme.textSecondary,
   },
   inputContainer: {
     marginBottom: 20,
@@ -151,18 +157,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 8,
-    color: '#333',
+    color: theme.text,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: theme.inputBorder,
     borderRadius: 8,
     padding: 16,
     fontSize: 16,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: theme.inputBackground,
+    color: theme.text,
   },
   button: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     paddingVertical: 16,
     borderRadius: 8,
     marginTop: 10,
@@ -181,7 +188,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelText: {
-    color: '#007AFF',
+    color: theme.buttonPrimary,
     fontSize: 14,
     fontWeight: '600',
   },

@@ -4,8 +4,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { getAllStack, removeFromStack, getAllHistory, addToStack, isInStack, type Supplement } from '../../lib/storage';
 import { addScheduledSupplement } from '../../lib/scheduleStorage';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
 
 export default function StackScreen() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme ?? 'light'];
+
   const router = useRouter();
   const [supplements, setSupplements] = useState<Supplement[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -99,6 +104,13 @@ export default function StackScreen() {
     }
   };
 
+  const getColorForScore = (score: number) => {
+    if (score >= 80) return theme.scoreExcellent;
+    if (score >= 60) return theme.scoreGood;
+    if (score >= 40) return theme.scoreFair;
+    return theme.scorePoor;
+  };
+
   const renderScoreBar = (label: string, score: number | undefined) => {
     if (score == null) return null;
     return (
@@ -110,13 +122,6 @@ export default function StackScreen() {
         <Text style={styles.scoreValue}>{score}</Text>
       </View>
     );
-  };
-
-  const getColorForScore = (score: number) => {
-    if (score >= 80) return '#28a745';
-    if (score >= 60) return '#ffc107';
-    if (score >= 40) return '#fd7e14';
-    return '#dc3545';
   };
 
   const loadHistory = async () => {
@@ -266,10 +271,10 @@ export default function StackScreen() {
   };
 
   const getRatingColor = (rating: number) => {
-    if (rating >= 80) return { backgroundColor: '#28a745' }; // Green
-    if (rating >= 60) return { backgroundColor: '#ffc107' }; // Yellow
-    if (rating >= 40) return { backgroundColor: '#fd7e14' }; // Orange
-    return { backgroundColor: '#dc3545' }; // Red
+    if (rating >= 80) return { backgroundColor: theme.scoreExcellent };
+    if (rating >= 60) return { backgroundColor: theme.scoreGood };
+    if (rating >= 40) return { backgroundColor: theme.scoreFair };
+    return { backgroundColor: theme.scorePoor };
   };
 
   const timeOptions = Array.from({ length: 24 }, (_, i) => {
@@ -278,6 +283,8 @@ export default function StackScreen() {
   }).flat();
 
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const styles = createStyles(theme);
 
   return (
     <View style={styles.container}>
@@ -357,7 +364,7 @@ export default function StackScreen() {
                   placeholder='e.g., "2 capsules", "1 tablet", "5ml"'
                   value={dosage}
                   onChangeText={setDosage}
-                  placeholderTextColor="#999"
+                  placeholderTextColor={theme.inputPlaceholder}
                 />
               </View>
 
@@ -504,18 +511,18 @@ export default function StackScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
   },
   header: {
     paddingTop: 60,
     paddingHorizontal: 20,
     paddingBottom: 20,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.cardBackground,
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
+    borderBottomColor: theme.borderLight,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -523,14 +530,15 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
+    color: theme.text,
   },
   subtitle: {
     fontSize: 14,
-    color: '#6c757d',
+    color: theme.textMuted,
     marginTop: 4,
   },
   historyButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
@@ -544,12 +552,12 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.cardBackground,
     borderRadius: 12,
     padding: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#dee2e6',
+    borderColor: theme.cardBorder,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -564,7 +572,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 8,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.inputBackground,
   },
   info: {
     flex: 1,
@@ -575,13 +583,13 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#e9ecef',
+    borderTopColor: theme.borderLight,
   },
   scoresTitle: {
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 8,
-    color: '#333',
+    color: theme.text,
   },
   scoreRow: {
     flexDirection: 'row',
@@ -590,14 +598,14 @@ const styles = StyleSheet.create({
   },
   scoreLabel: {
     fontSize: 12,
-    color: '#6c757d',
+    color: theme.textMuted,
     width: 100,
     fontWeight: '500',
   },
   scoreBarContainer: {
     flex: 1,
     height: 8,
-    backgroundColor: '#e9ecef',
+    backgroundColor: theme.borderLight,
     borderRadius: 4,
     overflow: 'hidden',
     marginHorizontal: 8,
@@ -609,7 +617,7 @@ const styles = StyleSheet.create({
   scoreValue: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#333',
+    color: theme.text,
     width: 30,
     textAlign: 'right',
   },
@@ -617,19 +625,20 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#e9ecef',
+    borderTopColor: theme.borderLight,
   },
   analysisTitle: {
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 6,
-    color: '#333',
+    color: theme.text,
   },
   name: {
     fontSize: 15,
     fontWeight: '600',
     marginBottom: 2,
     paddingRight: 50,
+    color: theme.text,
   },
   ratingBadge: {
     position: 'absolute',
@@ -649,16 +658,16 @@ const styles = StyleSheet.create({
   },
   brand: {
     fontSize: 13,
-    color: '#6c757d',
+    color: theme.textMuted,
     marginBottom: 2,
   },
   date: {
     fontSize: 11,
-    color: '#adb5bd',
+    color: theme.textLight,
   },
   analysis: {
     fontSize: 13,
-    color: '#495057',
+    color: theme.textSecondary,
     lineHeight: 18,
   },
   actionButtons: {
@@ -667,7 +676,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   scheduleButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 8,
@@ -680,7 +689,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   deleteButton: {
-    backgroundColor: '#dc3545',
+    backgroundColor: theme.buttonDanger,
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 8,
@@ -701,23 +710,23 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#495057',
+    color: theme.textSecondary,
     marginBottom: 8,
     textAlign: 'center',
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#6c757d',
+    color: theme.textMuted,
     textAlign: 'center',
   },
   // Modal styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: theme.modalOverlay,
     justifyContent: 'flex-end',
   },
   modalContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
@@ -727,7 +736,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
     marginBottom: 24,
-    color: '#000',
+    color: theme.text,
   },
   section: {
     marginBottom: 24,
@@ -736,7 +745,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 12,
-    color: '#333',
+    color: theme.text,
   },
   timeScroll: {
     flexGrow: 0,
@@ -745,28 +754,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.inputBackground,
     marginRight: 8,
   },
   timeChipSelected: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
   },
   timeChipText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#333',
+    color: theme.text,
   },
   timeChipTextSelected: {
     color: '#fff',
   },
   dosageInput: {
     borderWidth: 1,
-    borderColor: '#dee2e6',
+    borderColor: theme.inputBorder,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 15,
-    color: '#000',
+    color: theme.text,
+    backgroundColor: theme.inputBackground,
   },
   frequencyButtons: {
     flexDirection: 'row',
@@ -776,16 +786,16 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.inputBackground,
     alignItems: 'center',
   },
   frequencyButtonSelected: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
   },
   frequencyButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#333',
+    color: theme.text,
   },
   frequencyButtonTextSelected: {
     color: '#fff',
@@ -799,17 +809,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.inputBackground,
     minWidth: 48,
     alignItems: 'center',
   },
   dayChipSelected: {
-    backgroundColor: '#28a745',
+    backgroundColor: theme.buttonSecondary,
   },
   dayChipText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#333',
+    color: theme.text,
   },
   dayChipTextSelected: {
     color: '#fff',
@@ -819,13 +829,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: '#e3f2fd',
+    backgroundColor: theme.inputBackground,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.buttonPrimary,
   },
   weekdaysButtonText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#007AFF',
+    color: theme.buttonPrimary,
   },
   modalActions: {
     flexDirection: 'row',
@@ -836,23 +848,23 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.inputBackground,
     alignItems: 'center',
   },
   cancelButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: theme.text,
   },
   confirmButton: {
     flex: 1,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.buttonPrimary,
     alignItems: 'center',
   },
   confirmButtonDisabled: {
-    backgroundColor: '#ccc',
+    backgroundColor: theme.buttonDisabled,
   },
   confirmButtonText: {
     fontSize: 16,
@@ -862,12 +874,12 @@ const styles = StyleSheet.create({
   // History Modal styles
   historyModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: theme.modalOverlay,
     justifyContent: 'flex-start',
     paddingTop: 60,
   },
   historyModalContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '80%',
@@ -880,36 +892,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
+    borderBottomColor: theme.borderLight,
   },
   historyModalTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#000',
+    color: theme.text,
   },
   historyCloseButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.inputBackground,
     justifyContent: 'center',
     alignItems: 'center',
   },
   historyCloseButtonText: {
     fontSize: 20,
-    color: '#666',
+    color: theme.textMuted,
     fontWeight: '600',
   },
   historyList: {
     padding: 16,
   },
   historyCard: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.cardBackground,
     borderRadius: 12,
     padding: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#dee2e6',
+    borderColor: theme.cardBorder,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -923,7 +935,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 8,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.inputBackground,
   },
   historyInfo: {
     flex: 1,
@@ -934,25 +946,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 2,
+    color: theme.text,
   },
   historyBrand: {
     fontSize: 12,
-    color: '#6c757d',
+    color: theme.textMuted,
     marginBottom: 2,
   },
   historyDate: {
     fontSize: 11,
-    color: '#adb5bd',
+    color: theme.textLight,
   },
   addToStackButton: {
-    backgroundColor: '#28a745',
+    backgroundColor: theme.buttonSecondary,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
     minWidth: 100,
   },
   addToStackButtonDisabled: {
-    backgroundColor: '#e9ecef',
+    backgroundColor: theme.borderLight,
   },
   addToStackButtonText: {
     color: '#fff',
@@ -961,7 +974,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   addToStackButtonTextDisabled: {
-    color: '#6c757d',
+    color: theme.textMuted,
   },
   historyEmptyContainer: {
     flex: 1,
@@ -972,13 +985,13 @@ const styles = StyleSheet.create({
   historyEmptyText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#495057',
+    color: theme.textSecondary,
     marginBottom: 8,
     textAlign: 'center',
   },
   historyEmptySubtext: {
     fontSize: 13,
-    color: '#6c757d',
+    color: theme.textMuted,
     textAlign: 'center',
   },
 });
