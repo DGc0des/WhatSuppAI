@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ScrollView, Image, Alert, TextInput, Keyboard, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ScrollView, Image, Alert, TextInput, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform } from 'react-native';
 import { Calendar, DateData } from 'react-native-calendars';
 import { useFocusEffect } from '@react-navigation/native';
 import { getAllScannedSupplements, type ScannedSupplement } from '../../lib/storage';
@@ -343,9 +343,8 @@ export default function CalendarScreen() {
           return;
         }
 
-        // Always use today's date when updating time
-        // This ensures we're not scheduling notifications in the past
-        const targetDate = new Date().toISOString().split('T')[0];
+        // Keep the original scheduled date, just update the time
+        const targetDate = schedule.scheduled_date.split('T')[0];
         const newDateTime = `${targetDate}T${text.trim()}:00`;
 
         console.log('[Calendar] Updating time from', schedule.scheduled_date, 'to', newDateTime);
@@ -951,8 +950,12 @@ export default function CalendarScreen() {
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.dosageModalContent}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{ width: '100%' }}
+            >
+              <TouchableWithoutFeedback>
+                <View style={styles.dosageModalContent}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>
                     {dosageContext?.type === 'add' ? 'Set Dosage' : 'Update Dosage'}
@@ -962,69 +965,63 @@ export default function CalendarScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <ScrollView
-                  style={styles.dosageScrollView}
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}
-                >
-                  <View style={styles.dosageInputContainer}>
-                    <View style={styles.dosageAmountSection}>
-                      <Text style={styles.dosageModalLabel}>Amount</Text>
-                      <TextInput
-                        style={styles.dosageInput}
-                        value={dosageAmount}
-                        onChangeText={setDosageAmount}
-                        placeholder="e.g., 2"
-                        keyboardType="numeric"
-                        returnKeyType="done"
-                        onSubmitEditing={Keyboard.dismiss}
-                      />
-                    </View>
-
-                    <View style={styles.dosageUnitSection}>
-                      <Text style={styles.dosageModalLabel}>Unit</Text>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        style={styles.unitScroll}
-                        contentContainerStyle={styles.unitScrollContent}
-                        onScrollBeginDrag={Keyboard.dismiss}
-                      >
-                        {MEASUREMENT_UNITS.map((unit) => (
-                          <TouchableOpacity
-                            key={unit.value}
-                            style={[
-                              styles.unitChip,
-                              selectedUnit === unit.value && styles.unitChipSelected
-                            ]}
-                            onPress={() => {
-                              Keyboard.dismiss();
-                              setSelectedUnit(unit.value);
-                            }}
-                          >
-                            <Text
-                              style={[
-                                styles.unitChipText,
-                                selectedUnit === unit.value && styles.unitChipTextSelected
-                              ]}
-                            >
-                              {unit.label}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-
-                    <View style={styles.dosagePreview}>
-                      <Text style={styles.dosagePreviewLabel}>Preview:</Text>
-                      <Text style={styles.dosagePreviewText}>
-                        {dosageAmount.trim()
-                          ? formatDosage(dosageAmount.trim(), selectedUnit)
-                          : 'No dosage'}
-                      </Text>
-                    </View>
+                <View style={styles.dosageInputContainer}>
+                  <View style={styles.dosageAmountSection}>
+                    <Text style={styles.dosageModalLabel}>Amount</Text>
+                    <TextInput
+                      style={styles.dosageInput}
+                      value={dosageAmount}
+                      onChangeText={setDosageAmount}
+                      placeholder="e.g., 2"
+                      keyboardType="numeric"
+                      returnKeyType="done"
+                      onSubmitEditing={Keyboard.dismiss}
+                    />
                   </View>
-                </ScrollView>
+
+                  <View style={styles.dosageUnitSection}>
+                    <Text style={styles.dosageModalLabel}>Unit</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.unitScroll}
+                      contentContainerStyle={styles.unitScrollContent}
+                      onScrollBeginDrag={Keyboard.dismiss}
+                    >
+                      {MEASUREMENT_UNITS.map((unit) => (
+                        <TouchableOpacity
+                          key={unit.value}
+                          style={[
+                            styles.unitChip,
+                            selectedUnit === unit.value && styles.unitChipSelected
+                          ]}
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            setSelectedUnit(unit.value);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.unitChipText,
+                              selectedUnit === unit.value && styles.unitChipTextSelected
+                            ]}
+                          >
+                            {unit.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+
+                  <View style={styles.dosagePreview}>
+                    <Text style={styles.dosagePreviewLabel}>Preview:</Text>
+                    <Text style={styles.dosagePreviewText}>
+                      {dosageAmount.trim()
+                        ? formatDosage(dosageAmount.trim(), selectedUnit)
+                        : 'No dosage'}
+                    </Text>
+                  </View>
+                </View>
 
                 <View style={styles.dosageModalButtons}>
                   <TouchableOpacity
@@ -1044,6 +1041,7 @@ export default function CalendarScreen() {
                 </View>
               </View>
             </TouchableWithoutFeedback>
+            </KeyboardAvoidingView>
           </View>
         </TouchableWithoutFeedback>
       </Modal>

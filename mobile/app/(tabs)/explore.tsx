@@ -1,11 +1,12 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Modal, TextInput, ScrollView, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { getAllStack, removeFromStack, getAllHistory, addToStack, isInStack, type Supplement } from '../../lib/storage';
+import { getAllStack, removeFromStack, getAllHistory, addToStack, isInStack, deleteFromHistory, type Supplement } from '../../lib/storage';
 import { addScheduledSupplement } from '../../lib/scheduleStorage';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
+import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 
 export default function StackScreen() {
   const colorScheme = useColorScheme();
@@ -28,6 +29,7 @@ export default function StackScreen() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyItems, setHistoryItems] = useState<Supplement[]>([]);
   const [inStackSet, setInStackSet] = useState<Set<string>>(new Set());
+  const [expandedHistoryId, setExpandedHistoryId] = useState<number | null>(null);
 
   const loadSupplements = async () => {
     const data = await getAllStack();
@@ -144,6 +146,29 @@ export default function StackScreen() {
     Alert.alert('Added to Stack', `${supplement.name} has been added to your stack`);
   };
 
+  const handleDeleteFromHistory = async (id: number, name: string) => {
+    Alert.alert(
+      'Delete from History',
+      `Remove "${name}" from your scan history?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteFromHistory(id);
+              await loadHistory();
+              Alert.alert('Deleted', 'Item removed from history');
+            } catch (error: any) {
+              Alert.alert('Error', `Failed to delete: ${error.message}`);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const renderItem = ({ item }: { item: Supplement }) => {
     const isExpanded = expandedId === item.id;
 
@@ -230,43 +255,99 @@ export default function StackScreen() {
 
   const renderHistoryItem = ({ item }: { item: Supplement }) => {
     const isInStack = inStackSet.has(item.barcode);
+    const isExpanded = expandedHistoryId === item.id;
+
+    const renderRightActions = () => (
+      <TouchableOpacity
+        style={styles.deleteAction}
+        onPress={() => handleDeleteFromHistory(item.id, item.name)}
+      >
+        <Text style={styles.deleteActionText}>Delete</Text>
+      </TouchableOpacity>
+    );
 
     return (
-      <View style={styles.historyCard}>
-        <View style={styles.historyCardContent}>
-          {item.image && (
-            <Image
-              source={{ uri: item.image }}
-              style={styles.historyThumbnail}
-              resizeMode="contain"
-            />
-          )}
-          <View style={styles.historyInfo}>
-            <Text style={styles.historyName} numberOfLines={2}>
-              {item.name}
-            </Text>
-            <Text style={styles.historyBrand}>{item.brand}</Text>
-            <Text style={styles.historyDate}>
-              {new Date(item.created_at).toLocaleDateString()}
-            </Text>
-          </View>
-        </View>
+      <Swipeable
+        renderRightActions={renderRightActions}
+        overshootRight={false}
+        friction={2}
+        rightThreshold={40}
+      >
         <TouchableOpacity
-          style={[
-            styles.addToStackButton,
-            isInStack && styles.addToStackButtonDisabled
-          ]}
-          onPress={() => !isInStack && handleAddToStackFromHistory(item)}
-          disabled={isInStack}
+          style={styles.historyCard}
+          onPress={() => setExpandedHistoryId(isExpanded ? null : item.id)}
+          activeOpacity={0.7}
         >
-          <Text style={[
-            styles.addToStackButtonText,
-            isInStack && styles.addToStackButtonTextDisabled
-          ]}>
-            {isInStack ? '✓ In Stack' : '+ Add to Stack'}
-          </Text>
+          {item.rating != null && (
+            <View style={[styles.ratingBadge, getRatingColor(item.rating)]}>
+              <Text style={styles.ratingText}>{item.rating}</Text>
+            </View>
+          )}
+
+          <View style={styles.historyCardContent}>
+            {item.image && (
+              <Image
+                source={{ uri: item.image }}
+                style={styles.historyThumbnail}
+                resizeMode="contain"
+              />
+            )}
+            <View style={styles.historyInfo}>
+              <Text style={styles.historyName} numberOfLines={isExpanded ? undefined : 2}>
+                {item.name}
+              </Text>
+              <Text style={styles.historyBrand}>{item.brand}</Text>
+              <Text style={styles.historyDate}>
+                {new Date(item.created_at).toLocaleDateString()}
+              </Text>
+            </View>
+          </View>
+
+          {isExpanded && (
+            <>
+              {item.scores && (
+                <View style={styles.scoresContainer}>
+                  <Text style={styles.scoresTitle}>Scores</Text>
+                  {renderScoreBar('Effectiveness', item.scores.effectiveness)}
+                  {renderScoreBar('Safety', item.scores.safety)}
+                  {renderScoreBar('Quality', item.scores.quality)}
+                  {renderScoreBar('Value', item.scores.value)}
+                  {renderScoreBar('Satisfaction', item.scores.satisfaction)}
+                  {renderScoreBar('Taste', item.scores.taste)}
+                </View>
+              )}
+
+              {item.analysis && (
+                <View style={styles.analysisContainer}>
+                  <Text style={styles.analysisTitle}>Analysis</Text>
+                  <Text style={styles.analysis}>{item.analysis}</Text>
+                </View>
+              )}
+            </>
+          )}
+
+          <View style={styles.actionButtons}>
+            <TouchableOpacity
+              style={[
+                styles.addToStackButton,
+                isInStack && styles.addToStackButtonDisabled
+              ]}
+              onPress={(e) => {
+                e.stopPropagation();
+                if (!isInStack) handleAddToStackFromHistory(item);
+              }}
+              disabled={isInStack}
+            >
+              <Text style={[
+                styles.addToStackButtonText,
+                isInStack && styles.addToStackButtonTextDisabled
+              ]}>
+                {isInStack ? '✓ In Stack' : '+ Add to Stack'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </TouchableOpacity>
-      </View>
+      </Swipeable>
     );
   };
 
@@ -287,7 +368,8 @@ export default function StackScreen() {
   const styles = createStyles(theme);
 
   return (
-    <View style={styles.container}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={styles.container}>
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>My Stack</Text>
@@ -507,7 +589,8 @@ export default function StackScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+      </View>
+    </GestureHandlerRootView>
   );
 }
 
@@ -922,14 +1005,10 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: theme.cardBorder,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    position: 'relative',
   },
   historyCardContent: {
     flexDirection: 'row',
-    flex: 1,
-    marginRight: 12,
   },
   historyThumbnail: {
     width: 50,
@@ -946,6 +1025,7 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 2,
+    paddingRight: 50,
     color: theme.text,
   },
   historyBrand: {
@@ -959,17 +1039,17 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   },
   addToStackButton: {
     backgroundColor: theme.buttonSecondary,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderRadius: 8,
-    minWidth: 100,
+    flex: 1,
   },
   addToStackButtonDisabled: {
     backgroundColor: theme.borderLight,
   },
   addToStackButtonText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -993,5 +1073,19 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 13,
     color: theme.textMuted,
     textAlign: 'center',
+  },
+  deleteAction: {
+    backgroundColor: theme.buttonDanger,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingHorizontal: 20,
+    marginBottom: 8,
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  deleteActionText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
