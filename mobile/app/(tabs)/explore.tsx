@@ -8,6 +8,24 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { getTodayDateString, localDateTimeToUTC } from '../../lib/timezoneUtils';
+import { Picker } from '@react-native-picker/picker';
+
+const MEASUREMENT_UNITS = [
+  { label: 'capsule', value: 'capsule' },
+  { label: 'tablet', value: 'tablet' },
+  { label: 'softgel', value: 'softgel' },
+  { label: 'pill', value: 'pill' },
+  { label: 'gummy', value: 'gummy' },
+  { label: 'ml', value: 'ml' },
+  { label: 'mg', value: 'mg' },
+  { label: 'g', value: 'g' },
+  { label: 'mcg', value: 'mcg' },
+  { label: 'IU', value: 'IU' },
+  { label: 'drop', value: 'drop' },
+  { label: 'spray', value: 'spray' },
+  { label: 'scoop', value: 'scoop' },
+  { label: 'packet', value: 'packet' },
+];
 
 export default function StackScreen() {
   const colorScheme = useColorScheme();
@@ -22,7 +40,8 @@ export default function StackScreen() {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [selectedSupplement, setSelectedSupplement] = useState<Supplement | null>(null);
   const [selectedTime, setSelectedTime] = useState('08:00');
-  const [dosage, setDosage] = useState('');
+  const [dosageAmount, setDosageAmount] = useState('');
+  const [dosageUnit, setDosageUnit] = useState('capsule');
   const [recurrenceType, setRecurrenceType] = useState<'once' | 'daily' | 'weekly'>('daily');
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]); // Default weekdays
 
@@ -72,7 +91,8 @@ export default function StackScreen() {
     setShowScheduleModal(true);
     // Reset to defaults
     setSelectedTime('08:00');
-    setDosage('');
+    setDosageAmount('');
+    setDosageUnit('capsule');
     setRecurrenceType('daily');
     setSelectedDays([1, 2, 3, 4, 5]);
   };
@@ -85,7 +105,11 @@ export default function StackScreen() {
     const utcDateTime = localDateTimeToUTC(today, selectedTime);
 
     const recurrenceDays = recurrenceType === 'weekly' ? selectedDays : null;
-    const dosageValue = dosage.trim() || null;
+
+    // Format dosage if amount is provided
+    const dosageValue = dosageAmount.trim()
+      ? `${dosageAmount.trim()} ${dosageUnit}${parseFloat(dosageAmount) !== 1 && !['ml', 'mg', 'g', 'mcg', 'IU'].includes(dosageUnit) ? 's' : ''}`
+      : null;
 
     await addScheduledSupplement(
       selectedSupplement.id,
@@ -443,13 +467,33 @@ export default function StackScreen() {
               {/* Dosage Input */}
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>💊 Dosage (Optional)</Text>
-                <TextInput
-                  style={styles.dosageInput}
-                  placeholder='e.g., "2 capsules", "1 tablet", "5ml"'
-                  value={dosage}
-                  onChangeText={setDosage}
-                  placeholderTextColor={theme.inputPlaceholder}
-                />
+                <View style={styles.dosageRow}>
+                  <TextInput
+                    style={styles.dosageAmountInput}
+                    placeholder="Amount"
+                    placeholderTextColor={theme.inputPlaceholder}
+                    value={dosageAmount}
+                    onChangeText={setDosageAmount}
+                    keyboardType="numeric"
+                  />
+                  <View style={styles.dosagePickerContainer}>
+                    <Picker
+                      selectedValue={dosageUnit}
+                      onValueChange={(itemValue) => setDosageUnit(itemValue)}
+                      style={styles.dosagePicker}
+                      dropdownIconColor={theme.text}
+                    >
+                      {MEASUREMENT_UNITS.map((unit) => (
+                        <Picker.Item
+                          key={unit.value}
+                          label={unit.label}
+                          value={unit.value}
+                          color={theme.text}
+                        />
+                      ))}
+                    </Picker>
+                  </View>
+                </View>
               </View>
 
               {/* Frequency Selection */}
@@ -591,6 +635,7 @@ export default function StackScreen() {
           </View>
         </View>
       </Modal>
+
       </View>
     </GestureHandlerRootView>
   );
@@ -1089,5 +1134,131 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Dosage button in schedule modal
+  dosageButton: {
+    backgroundColor: theme.inputBackground,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.borderLight,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  dosageButtonText: {
+    fontSize: 15,
+    color: theme.text,
+  },
+  dosageButtonIcon: {
+    fontSize: 18,
+  },
+  // Dosage Modal styles
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalClose: {
+    fontSize: 28,
+    color: theme.textMuted,
+    fontWeight: '300',
+  },
+  dosageModalContent: {
+    backgroundColor: theme.cardBackground,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    width: '100%',
+  },
+  dosageInputContainer: {
+    marginBottom: 20,
+  },
+  dosageAmountSection: {
+    marginBottom: 16,
+  },
+  dosageModalLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.text,
+    marginBottom: 8,
+  },
+  dosageUnitSection: {
+    marginBottom: 16,
+  },
+  unitScroll: {
+    flexGrow: 0,
+  },
+  unitScrollContent: {
+    paddingRight: 16,
+  },
+  unitChip: {
+    backgroundColor: theme.inputBackground,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: theme.borderLight,
+  },
+  unitChipSelected: {
+    backgroundColor: theme.buttonPrimary,
+    borderColor: theme.buttonPrimary,
+  },
+  unitChipText: {
+    fontSize: 14,
+    color: theme.text,
+    fontWeight: '500',
+  },
+  unitChipTextSelected: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  dosagePreview: {
+    backgroundColor: theme.inputBackground,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.borderLight,
+    marginTop: 8,
+  },
+  dosagePreviewLabel: {
+    fontSize: 13,
+    color: theme.textMuted,
+    marginBottom: 4,
+  },
+  dosagePreviewText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.text,
+  },
+  dosageModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dosageModalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  dosageModalButtonCancel: {
+    backgroundColor: theme.inputBackground,
+    borderWidth: 1,
+    borderColor: theme.borderLight,
+  },
+  dosageModalButtonCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.text,
+  },
+  dosageModalButtonConfirm: {
+    backgroundColor: theme.buttonPrimary,
+  },
+  dosageModalButtonConfirmText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });
