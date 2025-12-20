@@ -2,6 +2,7 @@ import { supabase } from '../supabase-client';
 import { ensureAuthenticated } from './auth';
 import type { ScannedSupplement } from './storage';
 import type { NotificationTiming } from './notificationService';
+import { getDayBoundsUTC } from './timezoneUtils';
 
 export interface ScheduledSupplement {
   id: number;
@@ -69,15 +70,15 @@ export async function getScheduledSupplements(): Promise<ScheduledSupplement[]> 
 }
 
 /**
- * Get scheduled supplements for a specific date
+ * Get scheduled supplements for a specific date (local timezone)
+ * Note: This function queries by UTC bounds, but the date parameter is in local timezone (YYYY-MM-DD)
  */
 export async function getScheduledSupplementsForDate(date: string): Promise<ScheduledSupplement[]> {
   try {
     const userId = await ensureAuthenticated();
 
-    // Get start and end of the day
-    const startOfDay = `${date}T00:00:00`;
-    const endOfDay = `${date}T23:59:59`;
+    // Convert local date bounds to UTC for database query
+    const { startOfDay, endOfDay } = getDayBoundsUTC(date);
 
     const { data, error } = await supabase
       .from('ScheduledSupplements')

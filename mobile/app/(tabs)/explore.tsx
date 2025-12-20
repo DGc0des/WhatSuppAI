@@ -7,6 +7,7 @@ import { addScheduledSupplement } from '../../lib/scheduleStorage';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { getTodayDateString, localDateTimeToUTC } from '../../lib/timezoneUtils';
 
 export default function StackScreen() {
   const colorScheme = useColorScheme();
@@ -79,15 +80,16 @@ export default function StackScreen() {
   const handleScheduleConfirm = async () => {
     if (!selectedSupplement) return;
 
-    const today = new Date().toISOString().split('T')[0];
-    const dateTime = `${today}T${selectedTime}:00`;
+    // Get today's date in local timezone and convert to UTC for storage
+    const today = getTodayDateString();
+    const utcDateTime = localDateTimeToUTC(today, selectedTime);
 
     const recurrenceDays = recurrenceType === 'weekly' ? selectedDays : null;
     const dosageValue = dosage.trim() || null;
 
     await addScheduledSupplement(
       selectedSupplement.id,
-      dateTime,
+      utcDateTime,
       recurrenceType,
       recurrenceDays,
       null,

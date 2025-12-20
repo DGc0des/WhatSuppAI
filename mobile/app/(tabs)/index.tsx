@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Button, ScrollView, StyleSheet, Text, View, Image, Alert, TouchableOpacity } from 'react-native';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
-import { identify } from '../../lib/api';
+import { identify, scanImageForBarcode } from '../../lib/api';
 import { saveScannedSupplement, addToStack, isInStack } from '../../lib/storage';
 import { signOut } from '../../lib/auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -129,7 +129,6 @@ export default function Home() {
         : imageAsset.uri;
 
       // Send to backend for barcode scanning
-      const { scanImageForBarcode } = await import('../../lib/api');
       const scanResult = await scanImageForBarcode(base64Image);
 
       if (!scanResult.found) {

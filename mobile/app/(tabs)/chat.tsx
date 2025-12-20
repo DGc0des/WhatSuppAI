@@ -17,6 +17,7 @@ import { Colors } from '@/constants/theme';
 import { askGpt } from '../../lib/api';
 import { getAllStack, type Supplement } from '../../lib/storage';
 import { getScheduledSupplements, addScheduledSupplement, type ScheduledSupplement } from '../../lib/scheduleStorage';
+import { utcToLocalTimeString, getTodayDateString, localDateTimeToUTC } from '../../lib/timezoneUtils';
 
 interface ScheduleAction {
   supplementId: number;
@@ -79,7 +80,27 @@ export default function ChatScreen() {
 
   const executeScheduleAction = async (action: ScheduleAction) => {
     try {
-      const dateTime = action.time; // Expected format: YYYY-MM-DDTHH:MM:00
+      // action.time is already in UTC format (ISO string) from GPT response parsing
+      // If it's not in UTC format (doesn't end with Z and isn't full ISO), convert it
+      let dateTime: string;
+      if (action.time.endsWith('Z') || action.time.includes('T') && action.time.includes(':')) {
+        // Already in UTC ISO format or close to it
+        dateTime = action.time.includes('Z') ? action.time : action.time + 'Z';
+      } else if (action.time.includes('T')) {
+        // Format: YYYY-MM-DDTHH:MM:00 (assume local time)
+        const [datePart, timePart] = action.time.split('T');
+        const timeOnly = timePart.split(':').slice(0, 2).join(':'); // Get HH:MM
+        dateTime = localDateTimeToUTC(datePart, timeOnly);
+      } else if (action.time.includes(' ')) {
+        // Format: YYYY-MM-DD HH:MM (assume local time)
+        const [datePart, timePart] = action.time.split(' ');
+        dateTime = localDateTimeToUTC(datePart, timePart);
+      } else {
+        // Fallback: use today's date with the time (assume local time)
+        const today = getTodayDateString();
+        dateTime = localDateTimeToUTC(today, action.time);
+      }
+      
       await addScheduledSupplement(
         action.supplementId,
         dateTime,
@@ -113,9 +134,29 @@ export default function ChatScreen() {
   const executeAllSchedules = async (actions: ScheduleAction[]) => {
     try {
       for (const action of actions) {
+        // Parse and convert to UTC (same logic as executeScheduleAction)
+        let dateTime: string;
+        if (action.time.endsWith('Z') || action.time.includes('T') && action.time.includes(':')) {
+          // Already in UTC ISO format or close to it
+          dateTime = action.time.includes('Z') ? action.time : action.time + 'Z';
+        } else if (action.time.includes('T')) {
+          // Format: YYYY-MM-DDTHH:MM:00 (assume local time)
+          const [datePart, timePart] = action.time.split('T');
+          const timeOnly = timePart.split(':').slice(0, 2).join(':');
+          dateTime = localDateTimeToUTC(datePart, timeOnly);
+        } else if (action.time.includes(' ')) {
+          // Format: YYYY-MM-DD HH:MM (assume local time)
+          const [datePart, timePart] = action.time.split(' ');
+          dateTime = localDateTimeToUTC(datePart, timePart);
+        } else {
+          // Fallback: use today's date with the time (assume local time)
+          const today = getTodayDateString();
+          dateTime = localDateTimeToUTC(today, action.time);
+        }
+        
         await addScheduledSupplement(
           action.supplementId,
-          action.time,
+          dateTime,
           action.recurrenceType,
           action.recurrenceDays || null,
           null,
@@ -165,11 +206,8 @@ export default function ChatScreen() {
 
       const scheduledList = scheduledSupplements.length > 0
         ? scheduledSupplements.map(s => {
-            const time = new Date(s.scheduled_date).toLocaleTimeString('en-US', {
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false
-            });
+            // Convert UTC time to local time for display
+            const time = utcToLocalTimeString(s.scheduled_date);
             const recurrence = s.recurrence_type === 'daily' ? 'daily' : s.recurrence_type === 'weekly' ? 'weekly' : 'once';
             return `- ${s.supplement.name}: ${time} (${recurrence})`;
           }).join('\n')
@@ -230,9 +268,10 @@ Provide your expert advice:`;
           );
 
           if (supplement) {
-            const time = timeMatch[1];
-            const today = new Date().toISOString().split('T')[0];
-            const dateTime = `${today}T${time.padStart(5, '0')}:00`;
+            const time = timeMatch[1].padStart(5, '0'); // Ensure HH:MM format
+            const today = getTodayDateString();
+            // Convert local date/time to UTC for storage
+            const dateTime = localDateTimeToUTC(today, time);
 
             let recurrenceDays: number[] | null = null;
             if (frequencyMatch[1].toLowerCase() === 'weekly' && daysMatch) {
