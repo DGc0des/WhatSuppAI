@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ScrollView, Image, Alert, TextInput, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Calendar, DateData } from 'react-native-calendars';
 import { useFocusEffect } from '@react-navigation/native';
 import { getAllScannedSupplements, type ScannedSupplement } from '../../lib/storage';
@@ -51,6 +52,9 @@ export default function CalendarScreen() {
   const [selectedSupplement, setSelectedSupplement] = useState<ScannedSupplement | null>(null);
   const [selectedTime, setSelectedTime] = useState('08:00');
   const [dosage, setDosage] = useState('');
+  const [dosageAmountInput, setDosageAmountInput] = useState('');
+  const [dosageUnitInput, setDosageUnitInput] = useState('capsule');
+  const [showUnitPicker, setShowUnitPicker] = useState(false);
   const [recurrenceType, setRecurrenceType] = useState<'once' | 'daily' | 'weekly'>('daily');
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]); // Default weekdays
 
@@ -64,6 +68,12 @@ export default function CalendarScreen() {
     time?: string;
     scheduleId?: number;
   } | null>(null);
+
+  // Time update modal state
+  const [showTimeModal, setShowTimeModal] = useState(false);
+  const [timeUpdateSchedule, setTimeUpdateSchedule] = useState<ScheduledSupplement | null>(null);
+  const [newTime, setNewTime] = useState('08:00');
+  const [pickerDate, setPickerDate] = useState(new Date());
 
   const styles = createStyles(theme);
 
@@ -104,6 +114,8 @@ export default function CalendarScreen() {
     // Reset to defaults
     setSelectedTime('08:00');
     setDosage('');
+    setDosageAmountInput('');
+    setDosageUnitInput('capsule');
     setRecurrenceType('daily');
     setSelectedDays([1, 2, 3, 4, 5]);
   };
@@ -126,7 +138,11 @@ export default function CalendarScreen() {
     const utcDateTime = localDateTimeToUTC(selectedDate, selectedTime);
 
     const recurrenceDays = recurrenceType === 'weekly' ? selectedDays : null;
-    const dosageValue = dosage.trim() || null;
+    
+    // Format dosage if amount is provided
+    const dosageValue = dosageAmountInput.trim()
+      ? `${dosageAmountInput.trim()} ${dosageUnitInput}${parseFloat(dosageAmountInput) !== 1 && !['ml', 'mg', 'g', 'mcg', 'IU'].includes(dosageUnitInput) ? 's' : ''}`
+      : null;
 
     // Check if notification should be enabled
     Alert.alert(
@@ -405,64 +421,118 @@ export default function CalendarScreen() {
   const handleUpdateTime = (schedule: ScheduledSupplement) => {
     // Convert UTC time to local time for display
     const currentTime = utcToLocalTimeString(schedule.scheduled_date);
-    const currentDate = utcToLocalDateString(schedule.scheduled_date);
+    setNewTime(currentTime);
+    
+    // Create a Date object for the picker
+    const [hours, minutes] = currentTime.split(':').map(Number);
+    const date = new Date();
+    date.setHours(hours);
+    date.setMinutes(minutes);
+    setPickerDate(date);
+    
+    setTimeUpdateSchedule(schedule);
+    setShowTimeModal(true);
+  };
 
-    Alert.prompt(
-      'Update Time',
-      'Enter new time (HH:MM)',
-      async (text) => {
-        if (!text) return;
+  const handleTimeChange = (event: any, selectedDate?: Date) => {
+    if (selectedDate) {
+      setPickerDate(selectedDate);
+      const hours = selectedDate.getHours().toString().padStart(2, '0');
+      const minutes = selectedDate.getMinutes().toString().padStart(2, '0');
+      setNewTime(`${hours}:${minutes}`);
+    }
+  };
 
-        const timeParts = text.trim().split(':');
-        if (timeParts.length !== 2) {
-          Alert.alert('Error', 'Invalid time format. Use HH:MM');
-          return;
-        }
+  const confirmTimeUpdate = async () => {
+    if (!timeUpdateSchedule) return;
 
-        // Convert local date/time to UTC for storage
-        const utcDateTime = localDateTimeToUTC(currentDate, text.trim());
+    // For recurring schedules, preserve the base date
+    // For one-time schedules, use the current date
+    let dateToUse: string;
+    
+    if (timeUpdateSchedule.recurrence_type === 'once') {
+      // For one-time schedules, keep the existing date
+      dateToUse = utcToLocalDateString(timeUpdateSchedule.scheduled_date);
+    } else {
+      // For recurring schedules, use the original scheduled date as the base
+      // This ensures the base template time is updated
+      const scheduledDateObj = new Date(timeUpdateSchedule.scheduled_date);
+      const year = scheduledDateObj.getUTCFullYear();
+      const month = String(scheduledDateObj.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(scheduledDateObj.getUTCDate()).padStart(2, '0');
+      dateToUse = `${year}-${month}-${day}`;
+    }
 
-        console.log('[Calendar] Updating time from', schedule.scheduled_date, 'to', utcDateTime);
+    // Convert local date/time to UTC for storage
+    const utcDateTime = localDateTimeToUTC(dateToUse, newTime);
 
-        // If notification is enabled, cancel old and schedule new
-        let newNotificationId = schedule.notification_id;
-        if (schedule.notification_enabled) {
-          // Cancel old notification
-          if (schedule.notification_id) {
-            await cancelNotification(schedule.notification_id);
-          }
+    console.log('[Calendar] ===== TIME UPDATE DEBUG =====');
+    console.log('[Calendar] Schedule ID:', timeUpdateSchedule.id);
+    console.log('[Calendar] Old scheduled_date:', timeUpdateSchedule.scheduled_date);
+    console.log('[Calendar] Date to use:', dateToUse);
+    console.log('[Calendar] New time:', newTime);
+    console.log('[Calendar] New UTC DateTime:', utcDateTime);
+    console.log('[Calendar] Recurrence type:', timeUpdateSchedule.recurrence_type);
 
-          // Parse as local time for notification
-          const [year, month, day] = currentDate.split('-').map(Number);
-          const [hour, minute] = text.trim().split(':').map(Number);
-          const localDate = new Date(year, month - 1, day, hour, minute, 0);
+    // If notification is enabled, cancel old and schedule new
+    let newNotificationId = timeUpdateSchedule.notification_id;
+    if (timeUpdateSchedule.notification_enabled) {
+      // Cancel old notification
+      if (timeUpdateSchedule.notification_id) {
+        await cancelNotification(timeUpdateSchedule.notification_id);
+      }
 
-          // Schedule new notification with updated time
-          newNotificationId = await scheduleSupplementNotification(
-            schedule.supplement.name,
-            schedule.supplement.brand,
-            localDate,
-            schedule.notification_timing,
-            schedule.dosage
-          );
-        }
+      // Parse as local time for notification
+      const [year, month, day] = dateToUse.split('-').map(Number);
+      const [hour, minute] = newTime.split(':').map(Number);
+      const localDate = new Date(year, month - 1, day, hour, minute, 0);
 
-        const result = await updateScheduledSupplement(schedule.id, {
-          scheduled_date: utcDateTime,
-          notification_id: newNotificationId
-        });
+      // Schedule new notification with updated time
+      newNotificationId = await scheduleSupplementNotification(
+        timeUpdateSchedule.supplement.name,
+        timeUpdateSchedule.supplement.brand,
+        localDate,
+        timeUpdateSchedule.notification_timing,
+        timeUpdateSchedule.dosage
+      );
+    }
 
-        console.log('[Calendar] Update result:', result);
+    const result = await updateScheduledSupplement(timeUpdateSchedule.id, {
+      scheduled_date: utcDateTime,
+      notification_id: newNotificationId
+    });
 
-        await loadData();
+    console.log('[Calendar] Update result:', result);
 
-        console.log('[Calendar] Data reloaded');
+    await loadData();
 
-        Alert.alert('Success', 'Time updated!');
-      },
-      'plain-text',
-      currentTime
-    );
+    console.log('[Calendar] Data reloaded');
+
+    setShowTimeModal(false);
+    setTimeUpdateSchedule(null);
+    Alert.alert('Success', 'Time updated!');
+  };
+
+  const getAmountOptions = (unit: string): string[] => {
+    switch (unit) {
+      case 'ml':
+        return ['1', '2', '5', '10', '15', '20', '30', '50', '100', '150', '200', '250','300','350','400','450','500','600','700','800','900','1000','1100','1200','1300','1400','1500','1600','1700','1800','1900','2000'];
+      case 'mg':
+        return ['25', '50', '100', '200', '250', '500', '1000'];
+      case 'g':
+        return ['0.5', '1', '2', '5', '10', '15', '20'];
+      case 'mcg':
+        return ['25', '50', '100', '200', '500', '1000', '2000'];
+      case 'IU':
+        return ['100', '200', '400', '500', '1000', '2000', '5000'];
+      case 'drop':
+      case 'spray':
+        return ['1', '2', '3', '4', '5', '6', '8', '10'];
+      case 'scoop':
+        return ['0.5', '1', '1.5', '2', '2.5', '3'];
+      default: // capsule, tablet, softgel, pill, gummy, packet
+        return ['0.5', '1', '1.5', '2', '2.5', '3', '4', '5', '6'];
+    }
   };
 
   const handleUpdateDosage = (schedule: ScheduledSupplement) => {
@@ -950,8 +1020,12 @@ export default function CalendarScreen() {
         transparent={true}
         onRequestClose={() => setShowAddModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
             {!selectedSupplement ? (
               // Step 1: Select Supplement
               <ScrollView showsVerticalScrollIndicator={false}>
@@ -1032,13 +1106,23 @@ export default function CalendarScreen() {
                 {/* Dosage Input */}
                 <View style={styles.section}>
                   <Text style={styles.sectionTitle}>💊 Dosage (Optional)</Text>
-                  <TextInput
-                    style={styles.dosageInput}
-                    placeholder='e.g., "2 capsules", "1 tablet", "5ml"'
-                    value={dosage}
-                    onChangeText={setDosage}
-                    placeholderTextColor={theme.inputPlaceholder}
-                  />
+                  <View style={styles.dosageRow}>
+                    <TextInput
+                      style={styles.dosageAmountInput}
+                      placeholder="Amount"
+                      placeholderTextColor={theme.inputPlaceholder}
+                      value={dosageAmountInput}
+                      onChangeText={setDosageAmountInput}
+                      keyboardType="numeric"
+                    />
+                    <TouchableOpacity
+                      style={styles.unitDropdown}
+                      onPress={() => setShowUnitPicker(true)}
+                    >
+                      <Text style={styles.unitDropdownText}>{dosageUnitInput}</Text>
+                      <Text style={styles.unitDropdownIcon}>▼</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
                 {/* Frequency Selection */}
@@ -1148,6 +1232,55 @@ export default function CalendarScreen() {
             )}
           </View>
         </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Unit Picker Modal */}
+      <Modal
+        visible={showUnitPicker}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowUnitPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.unitModalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowUnitPicker(false)}
+        >
+          <View style={styles.unitModalContent}>
+            <View style={styles.unitModalHeader}>
+              <Text style={styles.unitModalTitle}>Select Unit</Text>
+              <TouchableOpacity onPress={() => setShowUnitPicker(false)}>
+                <Text style={styles.unitModalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.unitList}>
+              {MEASUREMENT_UNITS.map((unit) => (
+                <TouchableOpacity
+                  key={unit.value}
+                  style={[
+                    styles.unitOption,
+                    dosageUnitInput === unit.value && styles.unitOptionSelected
+                  ]}
+                  onPress={() => {
+                    setDosageUnitInput(unit.value);
+                    setShowUnitPicker(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.unitOptionText,
+                    dosageUnitInput === unit.value && styles.unitOptionTextSelected
+                  ]}>
+                    {unit.label}
+                  </Text>
+                  {dosageUnitInput === unit.value && (
+                    <Text style={styles.unitCheckmark}>✓</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
       </Modal>
 
       {/* Dosage Modal */}
@@ -1157,14 +1290,8 @@ export default function CalendarScreen() {
         transparent={true}
         onRequestClose={() => setShowDosageModal(false)}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalOverlay}>
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              style={{ width: '100%' }}
-            >
-              <TouchableWithoutFeedback>
-                <View style={styles.dosageModalContent}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.dosageModalContent}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>
                     {dosageContext?.type === 'add' ? 'Set Dosage' : 'Update Dosage'}
@@ -1177,15 +1304,32 @@ export default function CalendarScreen() {
                 <View style={styles.dosageInputContainer}>
                   <View style={styles.dosageAmountSection}>
                     <Text style={styles.dosageModalLabel}>Amount</Text>
-                    <TextInput
-                      style={styles.dosageInput}
-                      value={dosageAmount}
-                      onChangeText={setDosageAmount}
-                      placeholder="e.g., 2"
-                      keyboardType="numeric"
-                      returnKeyType="done"
-                      onSubmitEditing={Keyboard.dismiss}
-                    />
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.amountScroll}
+                      contentContainerStyle={styles.amountScrollContent}
+                    >
+                      {getAmountOptions(selectedUnit).map((amount) => (
+                        <TouchableOpacity
+                          key={amount}
+                          style={[
+                            styles.amountChip,
+                            dosageAmount === amount && styles.amountChipSelected
+                          ]}
+                          onPress={() => setDosageAmount(amount)}
+                        >
+                          <Text
+                            style={[
+                              styles.amountChipText,
+                              dosageAmount === amount && styles.amountChipTextSelected
+                            ]}
+                          >
+                            {amount}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
                   </View>
 
                   <View style={styles.dosageUnitSection}>
@@ -1195,7 +1339,6 @@ export default function CalendarScreen() {
                       showsHorizontalScrollIndicator={false}
                       style={styles.unitScroll}
                       contentContainerStyle={styles.unitScrollContent}
-                      onScrollBeginDrag={Keyboard.dismiss}
                     >
                       {MEASUREMENT_UNITS.map((unit) => (
                         <TouchableOpacity
@@ -1205,8 +1348,12 @@ export default function CalendarScreen() {
                             selectedUnit === unit.value && styles.unitChipSelected
                           ]}
                           onPress={() => {
-                            Keyboard.dismiss();
                             setSelectedUnit(unit.value);
+                            // Reset amount if the new unit doesn't have the current amount in its options
+                            const newOptions = getAmountOptions(unit.value);
+                            if (!newOptions.includes(dosageAmount)) {
+                              setDosageAmount('');
+                            }
                           }}
                         >
                           <Text
@@ -1248,11 +1395,66 @@ export default function CalendarScreen() {
                     </Text>
                   </TouchableOpacity>
                 </View>
-              </View>
-            </TouchableWithoutFeedback>
-            </KeyboardAvoidingView>
           </View>
-        </TouchableWithoutFeedback>
+        </View>
+      </Modal>
+
+      {/* Time Update Modal */}
+      <Modal
+        visible={showTimeModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowTimeModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.timeModalContainer}>
+            <View style={styles.timeModalHeader}>
+              <Text style={styles.timeModalTitle}>Update Time</Text>
+              <TouchableOpacity onPress={() => setShowTimeModal(false)}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.timeModalContent}>
+              <Text style={styles.timeModalSubtitle}>
+                {timeUpdateSchedule?.supplement.name}
+              </Text>
+              
+              <View style={styles.selectedTimeDisplay}>
+                <Text style={styles.selectedTimeLabel}>Selected Time</Text>
+                <Text style={styles.selectedTimeText}>{newTime}</Text>
+              </View>
+              
+              <View style={styles.timePickerContainer}>
+                <DateTimePicker
+                  value={pickerDate}
+                  mode="time"
+                  is24Hour={true}
+                  display="spinner"
+                  onChange={handleTimeChange}
+                  textColor={theme.text}
+                  style={styles.timePicker}
+                  minuteInterval={1}
+                />
+              </View>
+            </View>
+
+            <View style={styles.timeModalActions}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setShowTimeModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmButton}
+                onPress={confirmTimeUpdate}
+              >
+                <Text style={styles.confirmButtonText}>Update</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -1514,30 +1716,37 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   },
   cancelButton: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderRadius: 12,
     backgroundColor: theme.inputBackground,
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: theme.borderLight,
   },
   cancelButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     color: theme.text,
   },
   confirmButton: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderRadius: 12,
     backgroundColor: theme.buttonPrimary,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
   confirmButtonDisabled: {
     backgroundColor: theme.textMuted,
     opacity: 0.5,
   },
   confirmButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#fff',
   },
   modalHeader: {
@@ -1625,6 +1834,36 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   dosageAmountSection: {
     marginBottom: 20,
   },
+  amountScroll: {
+    flexGrow: 0,
+  },
+  amountScrollContent: {
+    paddingRight: 16,
+  },
+  amountChip: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.cardBackground,
+    marginRight: 8,
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  amountChipSelected: {
+    backgroundColor: theme.buttonPrimary,
+    borderColor: theme.buttonPrimary,
+  },
+  amountChipText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: theme.text,
+  },
+  amountChipTextSelected: {
+    color: '#fff',
+    fontWeight: '700',
+  },
   dosageModalLabel: {
     fontSize: 16,
     fontWeight: '600',
@@ -1640,6 +1879,98 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 15,
     color: theme.text,
     backgroundColor: theme.inputBackground,
+  },
+  dosageRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dosageAmountInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: theme.inputBorder,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    backgroundColor: theme.inputBackground,
+    color: theme.text,
+    height: 44,
+  },
+  unitDropdown: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: theme.inputBorder,
+    borderRadius: 8,
+    backgroundColor: theme.inputBackground,
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+  },
+  unitDropdownText: {
+    fontSize: 15,
+    color: theme.text,
+  },
+  unitDropdownIcon: {
+    fontSize: 10,
+    color: theme.textMuted,
+  },
+  unitModalOverlay: {
+    flex: 1,
+    backgroundColor: theme.modalOverlay,
+    justifyContent: 'flex-end',
+  },
+  unitModalContent: {
+    backgroundColor: theme.background,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '50%',
+  },
+  unitModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.borderLight,
+  },
+  unitModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.text,
+  },
+  unitModalClose: {
+    fontSize: 24,
+    color: theme.textMuted,
+  },
+  unitList: {
+    maxHeight: 300,
+  },
+  unitOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.borderLight,
+  },
+  unitOptionSelected: {
+    backgroundColor: theme.inputBackground,
+  },
+  unitOptionText: {
+    fontSize: 16,
+    color: theme.text,
+  },
+  unitOptionTextSelected: {
+    fontWeight: '600',
+    color: theme.buttonPrimary,
+  },
+  unitCheckmark: {
+    fontSize: 18,
+    color: theme.buttonPrimary,
+    fontWeight: '700',
   },
   dosageUnitSection: {
     marginBottom: 20,
@@ -1722,5 +2053,69 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  // Time Update Modal styles
+  timeModalContainer: {
+    backgroundColor: theme.background,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    maxHeight: '70%',
+  },
+  timeModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  timeModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: theme.text,
+  },
+  timeModalSubtitle: {
+    fontSize: 15,
+    color: theme.textSecondary,
+    marginBottom: 12,
+  },
+  timeModalContent: {
+    marginBottom: 10,
+  },
+  selectedTimeDisplay: {
+    alignItems: 'center',
+    backgroundColor: theme.inputBackground,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginVertical: 12,
+  },
+  selectedTimeLabel: {
+    fontSize: 13,
+    color: theme.textMuted,
+    marginBottom: 4,
+  },
+  selectedTimeText: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: theme.buttonPrimary,
+    letterSpacing: 2,
+  },
+  timePickerContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
+  timePicker: {
+    width: '100%',
+    height: 150,
+  },
+  timeModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingTop: 16,
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: theme.borderLight,
   },
 });
