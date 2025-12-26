@@ -449,18 +449,31 @@ export default function CalendarScreen() {
     // For recurring schedules, preserve the base date
     // For one-time schedules, use the current date
     let dateToUse: string;
-    
+
     if (timeUpdateSchedule.recurrence_type === 'once') {
       // For one-time schedules, keep the existing date
       dateToUse = utcToLocalDateString(timeUpdateSchedule.scheduled_date);
     } else {
-      // For recurring schedules, use the original scheduled date as the base
-      // This ensures the base template time is updated
-      const scheduledDateObj = new Date(timeUpdateSchedule.scheduled_date);
-      const year = scheduledDateObj.getUTCFullYear();
-      const month = String(scheduledDateObj.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(scheduledDateObj.getUTCDate()).padStart(2, '0');
+      // For recurring schedules, use today's date for the next occurrence
+      // This ensures notifications are scheduled for the future
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
       dateToUse = `${year}-${month}-${day}`;
+
+      // If the time has already passed today, schedule for tomorrow
+      const [hour, minute] = newTime.split(':').map(Number);
+      const testTime = new Date(year, today.getMonth(), today.getDate(), hour, minute, 0);
+      if (testTime <= new Date()) {
+        // Add one day
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowYear = tomorrow.getFullYear();
+        const tomorrowMonth = String(tomorrow.getMonth() + 1).padStart(2, '0');
+        const tomorrowDay = String(tomorrow.getDate()).padStart(2, '0');
+        dateToUse = `${tomorrowYear}-${tomorrowMonth}-${tomorrowDay}`;
+      }
     }
 
     // Convert local date/time to UTC for storage
@@ -773,8 +786,31 @@ export default function CalendarScreen() {
       await cancelNotification(schedule.notification_id);
     }
 
-    // Convert UTC to local Date for notification scheduling
-    const localDate = utcToLocalDate(schedule.scheduled_date);
+    // Calculate the next occurrence date for notification
+    let localDate: Date;
+    if (schedule.recurrence_type === 'once') {
+      // For one-time schedules, use the stored date
+      localDate = utcToLocalDate(schedule.scheduled_date);
+    } else {
+      // For recurring schedules, calculate next occurrence
+      const storedDate = new Date(schedule.scheduled_date);
+      const storedHour = storedDate.getUTCHours();
+      const storedMinute = storedDate.getUTCMinutes();
+
+      // Get today's date in local timezone
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = today.getMonth();
+      const day = today.getDate();
+
+      // Create a date for today at the scheduled time (in local timezone)
+      localDate = new Date(year, month, day, storedHour, storedMinute, 0);
+
+      // If this time has already passed today, schedule for tomorrow
+      if (localDate <= new Date()) {
+        localDate.setDate(localDate.getDate() + 1);
+      }
+    }
 
     // Schedule new notification
     const notificationId = await scheduleSupplementNotification(
@@ -1031,7 +1067,11 @@ export default function CalendarScreen() {
               <ScrollView showsVerticalScrollIndicator={false}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Select Supplement</Text>
-                  <TouchableOpacity onPress={() => setShowAddModal(false)}>
+                  <TouchableOpacity onPress={() => {
+                    setShowAddModal(false);
+                    setShowUnitPicker(false);
+                    setSelectedSupplement(null);
+                  }}>
                     <Text style={styles.modalClose}>✕</Text>
                   </TouchableOpacity>
                 </View>
@@ -1071,6 +1111,7 @@ export default function CalendarScreen() {
                   <Text style={styles.modalTitle}>Schedule {selectedSupplement.name}</Text>
                   <TouchableOpacity onPress={() => {
                     setSelectedSupplement(null);
+                    setShowUnitPicker(false);
                   }}>
                     <Text style={styles.modalClose}>✕</Text>
                   </TouchableOpacity>
@@ -1213,6 +1254,9 @@ export default function CalendarScreen() {
                     onPress={() => {
                       setSelectedSupplement(null);
                       setShowAddModal(false);
+                      setShowUnitPicker(false);
+                      setDosageAmountInput('');
+                      setDosageUnitInput('capsule');
                     }}
                   >
                     <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -1230,57 +1274,66 @@ export default function CalendarScreen() {
                 </View>
               </ScrollView>
             )}
+
+            {/* Unit Picker Modal - INSIDE Add Modal */}
+            {showUnitPicker && (
+              <View style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                justifyContent: 'flex-end',
+                zIndex: 9999
+              }}>
+                <TouchableOpacity
+                  style={{ flex: 1, width: '100%' }}
+                  activeOpacity={1}
+                  onPress={() => setShowUnitPicker(false)}
+                >
+                  <View style={{ flex: 1 }} />
+                </TouchableOpacity>
+                <TouchableWithoutFeedback>
+                  <View style={styles.unitModalContent}>
+                    <View style={styles.unitModalHeader}>
+                      <Text style={styles.unitModalTitle}>Select Unit</Text>
+                      <TouchableOpacity onPress={() => setShowUnitPicker(false)}>
+                        <Text style={styles.unitModalClose}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView style={styles.unitList}>
+                      {MEASUREMENT_UNITS.map((unit) => (
+                        <TouchableOpacity
+                          key={unit.value}
+                          style={[
+                            styles.unitOption,
+                            dosageUnitInput === unit.value && styles.unitOptionSelected
+                          ]}
+                          onPress={() => {
+                            setDosageUnitInput(unit.value);
+                            setShowUnitPicker(false);
+                          }}
+                        >
+                          <Text style={[
+                            styles.unitOptionText,
+                            dosageUnitInput === unit.value && styles.unitOptionTextSelected
+                          ]}>
+                            {unit.label}
+                          </Text>
+                          {dosageUnitInput === unit.value && (
+                            <Text style={styles.unitCheckmark}>✓</Text>
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </TouchableWithoutFeedback>
+              </View>
+            )}
           </View>
         </View>
         </KeyboardAvoidingView>
-      </Modal>
-
-      {/* Unit Picker Modal */}
-      <Modal
-        visible={showUnitPicker}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowUnitPicker(false)}
-      >
-        <TouchableOpacity
-          style={styles.unitModalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowUnitPicker(false)}
-        >
-          <View style={styles.unitModalContent}>
-            <View style={styles.unitModalHeader}>
-              <Text style={styles.unitModalTitle}>Select Unit</Text>
-              <TouchableOpacity onPress={() => setShowUnitPicker(false)}>
-                <Text style={styles.unitModalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.unitList}>
-              {MEASUREMENT_UNITS.map((unit) => (
-                <TouchableOpacity
-                  key={unit.value}
-                  style={[
-                    styles.unitOption,
-                    dosageUnitInput === unit.value && styles.unitOptionSelected
-                  ]}
-                  onPress={() => {
-                    setDosageUnitInput(unit.value);
-                    setShowUnitPicker(false);
-                  }}
-                >
-                  <Text style={[
-                    styles.unitOptionText,
-                    dosageUnitInput === unit.value && styles.unitOptionTextSelected
-                  ]}>
-                    {unit.label}
-                  </Text>
-                  {dosageUnitInput === unit.value && (
-                    <Text style={styles.unitCheckmark}>✓</Text>
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </TouchableOpacity>
       </Modal>
 
       {/* Dosage Modal */}

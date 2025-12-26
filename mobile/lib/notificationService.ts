@@ -107,13 +107,18 @@ export async function scheduleSupplementNotification(
     console.log('[Notifications] Scheduled time:', scheduledDate.toLocaleString());
     console.log('[Notifications] Scheduled time (ISO):', scheduledDate.toISOString());
     console.log('[Notifications] Scheduled time (timestamp):', scheduledDate.getTime());
+    console.log('[Notifications] Scheduled time timezone offset (min):', scheduledDate.getTimezoneOffset());
     console.log('[Notifications] Notification time:', notificationTime.toLocaleString());
     console.log('[Notifications] Notification time (ISO):', notificationTime.toISOString());
     console.log('[Notifications] Notification time (timestamp):', notificationTime.getTime());
     console.log('[Notifications] Current time:', now.toLocaleString());
     console.log('[Notifications] Current time (ISO):', now.toISOString());
     console.log('[Notifications] Current time (timestamp):', now.getTime());
+    console.log('[Notifications] Minimum time:', minimumTime.toLocaleString());
+    console.log('[Notifications] Minimum time (timestamp):', minimumTime.getTime());
     console.log('[Notifications] Timing preference:', timing);
+    console.log('[Notifications] Time until notification (seconds):', (notificationTime.getTime() - now.getTime()) / 1000);
+    console.log('[Notifications] Is in past/too soon?', notificationTime < minimumTime);
 
     // Don't schedule if the time is in the past or too soon
     if (notificationTime < minimumTime) {

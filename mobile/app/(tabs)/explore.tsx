@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { getAllStack, removeFromStack, getAllHistory, addToStack, isInStack, deleteFromHistory, type Supplement } from '../../lib/storage';
@@ -44,6 +44,11 @@ export default function StackScreen() {
   const [showUnitPicker, setShowUnitPicker] = useState(false);
   const [recurrenceType, setRecurrenceType] = useState<'once' | 'daily' | 'weekly'>('daily');
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]); // Default weekdays
+
+  // Debug: Log state changes
+  React.useEffect(() => {
+    console.log('***** showUnitPicker changed to:', showUnitPicker);
+  }, [showUnitPicker]);
 
   // History modal state
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -121,6 +126,7 @@ export default function StackScreen() {
     );
 
     setShowScheduleModal(false);
+    setShowUnitPicker(false);
     router.push('/(tabs)/calendar');
   };
 
@@ -433,7 +439,10 @@ export default function StackScreen() {
         visible={showScheduleModal}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => setShowScheduleModal(false)}
+        onRequestClose={() => {
+          setShowScheduleModal(false);
+          setShowUnitPicker(false);
+        }}
       >
         <KeyboardAvoidingView 
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -489,55 +498,6 @@ export default function StackScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-
-              {/* Unit Picker Modal */}
-              <Modal
-                visible={showUnitPicker}
-                animationType="slide"
-                transparent={true}
-                onRequestClose={() => setShowUnitPicker(false)}
-              >
-                <TouchableOpacity
-                  style={styles.unitModalOverlay}
-                  activeOpacity={1}
-                  onPress={() => setShowUnitPicker(false)}
-                >
-                  <View style={styles.unitModalContent}>
-                    <View style={styles.unitModalHeader}>
-                      <Text style={styles.unitModalTitle}>Select Unit</Text>
-                      <TouchableOpacity onPress={() => setShowUnitPicker(false)}>
-                        <Text style={styles.unitModalClose}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <ScrollView style={styles.unitList}>
-                      {MEASUREMENT_UNITS.map((unit) => (
-                        <TouchableOpacity
-                          key={unit.value}
-                          style={[
-                            styles.unitOption,
-                            dosageUnit === unit.value && styles.unitOptionSelected
-                          ]}
-                          onPress={() => {
-                            setDosageUnit(unit.value);
-                            setShowUnitPicker(false);
-                          }}
-                        >
-                          <Text style={[
-                            styles.unitOptionText,
-                            dosageUnit === unit.value && styles.unitOptionTextSelected
-                          ]}>
-                            {unit.label}
-                          </Text>
-                          {dosageUnit === unit.value && (
-                            <Text style={styles.unitCheckmark}>✓</Text>
-                          )}
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                </TouchableOpacity>
-              </Modal>
-
               {/* Frequency Selection */}
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>🔄 Frequency</Text>
@@ -623,7 +583,10 @@ export default function StackScreen() {
               <View style={styles.modalActions}>
                 <TouchableOpacity
                   style={styles.cancelButton}
-                  onPress={() => setShowScheduleModal(false)}
+                  onPress={() => {
+                    setShowScheduleModal(false);
+                    setShowUnitPicker(false);
+                  }}
                 >
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
@@ -639,6 +602,63 @@ export default function StackScreen() {
                 </TouchableOpacity>
               </View>
             </ScrollView>
+
+            {/* Unit Picker - INSIDE Schedule Modal */}
+            {showUnitPicker && (
+              <View style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                justifyContent: 'flex-end',
+                zIndex: 9999
+              }}>
+                <TouchableOpacity
+                  style={{ flex: 1, width: '100%' }}
+                  activeOpacity={1}
+                  onPress={() => setShowUnitPicker(false)}
+                >
+                  <View style={{ flex: 1 }} />
+                </TouchableOpacity>
+                <TouchableWithoutFeedback>
+                  <View style={styles.unitModalContent}>
+                    <View style={styles.unitModalHeader}>
+                      <Text style={styles.unitModalTitle}>Select Unit</Text>
+                      <TouchableOpacity onPress={() => setShowUnitPicker(false)}>
+                        <Text style={styles.unitModalClose}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView style={styles.unitList}>
+                      {MEASUREMENT_UNITS.map((unit) => (
+                        <TouchableOpacity
+                          key={unit.value}
+                          style={[
+                            styles.unitOption,
+                            dosageUnit === unit.value && styles.unitOptionSelected
+                          ]}
+                          onPress={() => {
+                            setDosageUnit(unit.value);
+                            setShowUnitPicker(false);
+                          }}
+                        >
+                          <Text style={[
+                            styles.unitOptionText,
+                            dosageUnit === unit.value && styles.unitOptionTextSelected
+                          ]}>
+                            {unit.label}
+                          </Text>
+                          {dosageUnit === unit.value && (
+                            <Text style={styles.unitCheckmark}>✓</Text>
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </TouchableWithoutFeedback>
+              </View>
+            )}
           </View>
         </View>
         </KeyboardAvoidingView>
@@ -678,7 +698,6 @@ export default function StackScreen() {
           </View>
         </View>
       </Modal>
-
       </View>
     </GestureHandlerRootView>
   );
@@ -1270,130 +1289,99 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  // Dosage button in schedule modal
-  dosageButton: {
+  // Dosage inline inputs
+  dosageRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dosageAmountInput: {
+    flex: 1,
     backgroundColor: theme.inputBackground,
-    padding: 16,
     borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    color: theme.text,
+    borderWidth: 1,
+    borderColor: theme.borderLight,
+  },
+  unitDropdown: {
+    backgroundColor: theme.inputBackground,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     borderWidth: 1,
     borderColor: theme.borderLight,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
+    minWidth: 120,
+    justifyContent: 'space-between',
   },
-  dosageButtonText: {
-    fontSize: 15,
+  unitDropdownText: {
+    fontSize: 16,
     color: theme.text,
+    fontWeight: '500',
   },
-  dosageButtonIcon: {
-    fontSize: 18,
+  unitDropdownIcon: {
+    fontSize: 12,
+    color: theme.textMuted,
   },
-  // Dosage Modal styles
-  modalHeader: {
+  // Unit Picker Modal
+  unitModalOverlay: {
+    flex: 1,
+    backgroundColor: theme.modalOverlay,
+    justifyContent: 'flex-end',
+  },
+  unitModalContent: {
+    backgroundColor: theme.cardBackground,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '60%',
+  },
+  unitModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.borderLight,
   },
-  modalClose: {
+  unitModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: theme.text,
+  },
+  unitModalClose: {
     fontSize: 28,
     color: theme.textMuted,
     fontWeight: '300',
   },
-  dosageModalContent: {
-    backgroundColor: theme.cardBackground,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    width: '100%',
+  unitList: {
+    maxHeight: 400,
   },
-  dosageInputContainer: {
-    marginBottom: 20,
-  },
-  dosageAmountSection: {
-    marginBottom: 16,
-  },
-  dosageModalLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: theme.text,
-    marginBottom: 8,
-  },
-  dosageUnitSection: {
-    marginBottom: 16,
-  },
-  unitScroll: {
-    flexGrow: 0,
-  },
-  unitScrollContent: {
-    paddingRight: 16,
-  },
-  unitChip: {
-    backgroundColor: theme.inputBackground,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: theme.borderLight,
-  },
-  unitChipSelected: {
-    backgroundColor: theme.buttonPrimary,
-    borderColor: theme.buttonPrimary,
-  },
-  unitChipText: {
-    fontSize: 14,
-    color: theme.text,
-    fontWeight: '500',
-  },
-  unitChipTextSelected: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  dosagePreview: {
-    backgroundColor: theme.inputBackground,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.borderLight,
-    marginTop: 8,
-  },
-  dosagePreviewLabel: {
-    fontSize: 13,
-    color: theme.textMuted,
-    marginBottom: 4,
-  },
-  dosagePreviewText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: theme.text,
-  },
-  dosageModalButtons: {
+  unitOption: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  dosageModalButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
+    justifyContent: 'space-between',
     alignItems: 'center',
+    padding: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.borderLight,
   },
-  dosageModalButtonCancel: {
-    backgroundColor: theme.inputBackground,
-    borderWidth: 1,
-    borderColor: theme.borderLight,
+  unitOptionSelected: {
+    backgroundColor: theme.buttonPrimary + '15',
   },
-  dosageModalButtonCancelText: {
+  unitOptionText: {
     fontSize: 16,
-    fontWeight: '600',
     color: theme.text,
   },
-  dosageModalButtonConfirm: {
-    backgroundColor: theme.buttonPrimary,
-  },
-  dosageModalButtonConfirmText: {
-    fontSize: 16,
+  unitOptionTextSelected: {
+    color: theme.buttonPrimary,
     fontWeight: '600',
-    color: '#fff',
+  },
+  unitCheckmark: {
+    fontSize: 20,
+    color: theme.buttonPrimary,
+    fontWeight: '700',
   },
 });
