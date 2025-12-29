@@ -1,5 +1,4 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const app = express();
 const jsQR = require('jsqr');
 const sharp = require('sharp');
@@ -11,6 +10,105 @@ console.log("Server using port:", port);
 app.use(express.json({ limit: '50mb' }));  // for parsing application/json with larger payloads
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// ===== INPUT VALIDATION & SECURITY MIDDLEWARE =====
+
+// Rate limiting store (in-memory, replace with Redis for production)
+const rateLimitStore = new Map();
+
+// Rate limiting middleware
+function rateLimit(maxRequests = 60, windowMs = 60000) {
+  return (req, res, next) => {
+    const clientIp = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    const key = `${clientIp}:${req.path}`;
+
+    if (!rateLimitStore.has(key)) {
+      rateLimitStore.set(key, []);
+    }
+
+    const requests = rateLimitStore.get(key);
+    // Remove old requests outside the window
+    const validRequests = requests.filter(timestamp => now - timestamp < windowMs);
+
+    if (validRequests.length >= maxRequests) {
+      return res.status(429).json({
+        ok: false,
+        error: 'Too many requests. Please try again later.'
+      });
+    }
+
+    validRequests.push(now);
+    rateLimitStore.set(key, validRequests);
+
+    // Cleanup old entries periodically
+    if (Math.random() < 0.01) { // 1% chance on each request
+      cleanupRateLimitStore(windowMs * 2);
+    }
+
+    next();
+  };
+}
+
+function cleanupRateLimitStore(maxAge) {
+  const now = Date.now();
+  for (const [key, requests] of rateLimitStore.entries()) {
+    const validRequests = requests.filter(timestamp => now - timestamp < maxAge);
+    if (validRequests.length === 0) {
+      rateLimitStore.delete(key);
+    } else {
+      rateLimitStore.set(key, validRequests);
+    }
+  }
+}
+
+// Input sanitization helpers
+function sanitizeString(input, maxLength = 1000) {
+  if (typeof input !== 'string') return '';
+  return input
+    .trim()
+    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '') // Remove control characters
+    .substring(0, maxLength);
+}
+
+function validateBase64Image(base64String) {
+  if (typeof base64String !== 'string') return false;
+
+  // Remove data URI prefix if present
+  const base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
+
+  // Check if it's valid base64
+  const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+  if (!base64Regex.test(base64Data)) return false;
+
+  // Check length (max 50MB when decoded)
+  const sizeInBytes = (base64Data.length * 3) / 4;
+  const maxSizeBytes = 50 * 1024 * 1024; // 50MB
+  if (sizeInBytes > maxSizeBytes) return false;
+
+  return true;
+}
+
+function validateBarcode(barcode) {
+  if (!barcode || typeof barcode !== 'object') return false;
+
+  // Validate raw barcode
+  if (!barcode.raw || typeof barcode.raw !== 'string') return false;
+  const sanitizedRaw = barcode.raw.trim();
+  if (sanitizedRaw.length === 0 || sanitizedRaw.length > 50) return false;
+
+  // Barcode should contain only digits, letters, and basic symbols
+  if (!/^[A-Za-z0-9\-_]+$/.test(sanitizedRaw)) return false;
+
+  // Validate symbology if present
+  if (barcode.symbology) {
+    if (typeof barcode.symbology !== 'string') return false;
+    const validSymbologies = ['upc-a', 'ean-13', 'ean-8', 'code-128', 'code-39', 'unknown'];
+    if (!validSymbologies.includes(barcode.symbology.toLowerCase())) return false;
+  }
+
+  return true;
+}
+
 app.listen(port, '0.0.0.0', () => {
   console.log(`Supp app running on http://0.0.0.0:${port}`);
 });
@@ -21,10 +119,28 @@ app.get('/', (req, res) => {
 
 
 
-app.post('/gpt', async (req, res) => {
+app.post('/gpt', rateLimit(20, 60000), async (req, res) => {
   try {
+    // Validate input
     const prompt = req.body?.prompt;
-    if (!prompt) return res.status(400).json({ ok: false, error: 'No prompt provided' });
+    if (!prompt) {
+      return res.status(400).json({ ok: false, error: 'No prompt provided' });
+    }
+
+    // Type check and sanitize
+    if (typeof prompt !== 'string') {
+      return res.status(400).json({ ok: false, error: 'Prompt must be a string' });
+    }
+
+    const sanitizedPrompt = sanitizeString(prompt, 5000);
+
+    if (sanitizedPrompt.length < 3) {
+      return res.status(400).json({ ok: false, error: 'Prompt must be at least 3 characters' });
+    }
+
+    if (sanitizedPrompt.length > 5000) {
+      return res.status(400).json({ ok: false, error: 'Prompt exceeds maximum length of 5000 characters' });
+    }
 
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -39,7 +155,7 @@ app.post('/gpt', async (req, res) => {
             role: 'system',
             content: 'You are an expert nutritionist and supplement advisor. Provide accurate, evidence-based information about supplements, vitamins, minerals, nutrition, and health. Always prioritize safety and recommend consulting healthcare professionals for personalized medical advice. Keep responses concise, helpful, and focused on supplement-related topics.'
           },
-          { role: 'user', content: prompt }
+          { role: 'user', content: sanitizedPrompt }
         ]
       })
     });
@@ -49,17 +165,29 @@ app.post('/gpt', async (req, res) => {
     const text = data.choices?.[0]?.message?.content ?? '';
     res.json({ ok: true, text });
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
+    console.error('[/gpt] Error:', e.message);
+    res.status(500).json({ ok: false, error: 'Internal server error' });
   }
 });
 
-app.post('/scan-image', async (req, res) => {
+app.post('/scan-image', rateLimit(30, 60000), async (req, res) => {
   try {
     console.log('[/scan-image] Request received');
     const { imageUri } = req.body || {};
 
+    // Validate image URI presence
     if (!imageUri) {
       return res.status(400).json({ ok: false, error: 'No image provided' });
+    }
+
+    // Type check
+    if (typeof imageUri !== 'string') {
+      return res.status(400).json({ ok: false, error: 'Image URI must be a string' });
+    }
+
+    // Validate base64 image
+    if (!validateBase64Image(imageUri)) {
+      return res.status(400).json({ ok: false, error: 'Invalid image format or size' });
     }
 
     console.log('[/scan-image] Processing image...');
@@ -75,6 +203,11 @@ app.post('/scan-image', async (req, res) => {
       .toBuffer({ resolveWithObject: true });
 
     console.log('[/scan-image] Image dimensions:', info.width, 'x', info.height);
+
+    // Validate image dimensions
+    if (info.width > 10000 || info.height > 10000) {
+      return res.status(400).json({ ok: false, error: 'Image dimensions too large' });
+    }
 
     // Convert to Uint8ClampedArray for jsQR
     const imageData = new Uint8ClampedArray(data.buffer);
@@ -101,16 +234,24 @@ app.post('/scan-image', async (req, res) => {
 
   } catch (e) {
     console.error('[/scan-image] Error:', e.message);
-    res.status(500).json({ ok: false, error: e.message });
+    res.status(500).json({ ok: false, error: 'Internal server error' });
   }
 });
 
-app.post('/identify', async (req, res) => {
+app.post('/identify', rateLimit(30, 60000), async (req, res) => {
   try {
     console.log('[/identify] Request received');
     const { barcode } = req.body || {};
+
+    // Validate barcode object
+    if (!validateBarcode(barcode)) {
+      return res.status(400).json({ ok: false, error: 'Invalid barcode format' });
+    }
+
     const norm = normalizeBarcode(barcode?.raw, barcode?.symbology);
-    if (!norm.valid) return res.status(400).json({ ok:false, error:'Invalid barcode' });
+    if (!norm.valid) {
+      return res.status(400).json({ ok: false, error: 'Invalid barcode - failed checksum validation' });
+    }
 
     console.log('[/identify] Fetching from OpenFoodFacts...');
     let doc = await fromOpenFoodFacts(norm.ean13 || norm.upcA);
@@ -122,13 +263,32 @@ app.post('/identify', async (req, res) => {
 
     if (doc) {
       console.log('[/identify] Calling GPT for analysis...');
+
+      // Sanitize data before including in prompt to prevent injection
+      const safeName = sanitizeString(doc.name || doc.product_name || 'Unknown', 200);
+      const safeBrand = sanitizeString(doc.brand || doc.brands || 'Unknown', 200);
+      const safeIngredients = sanitizeString(doc.ingredientsText || doc.ingredients_text || 'Not available', 2000);
+
+      // Sanitize nutriments object
+      const safeNutriments = {};
+      if (doc.nutriments && typeof doc.nutriments === 'object') {
+        for (const [key, value] of Object.entries(doc.nutriments)) {
+          if (typeof key === 'string' && key.length < 100) {
+            const safeKey = sanitizeString(key, 100);
+            if (typeof value === 'number' || typeof value === 'string') {
+              safeNutriments[safeKey] = value;
+            }
+          }
+        }
+      }
+
       const prompt = `
 Analyze this supplement and provide detailed scores.
 
-Name: ${doc.name || doc.product_name}
-Brand: ${doc.brand || doc.brands}
-Ingredients: ${doc.ingredientsText || doc.ingredients_text}
-Nutritional info: ${JSON.stringify(doc.nutriments || {}, null, 2)}
+Name: ${safeName}
+Brand: ${safeBrand}
+Ingredients: ${safeIngredients}
+Nutritional info: ${JSON.stringify(safeNutriments, null, 2)}
 
 Provide scores (0-100) for each category and an overall analysis.
 Format your response EXACTLY as follows:
@@ -177,18 +337,31 @@ Analysis: [2-3 sentence summary of the supplement]`;
     });
   } catch (e) {
     console.error('[/identify] Error:', e.message);
-    res.status(500).json({ ok:false, error:e.message });
+    res.status(500).json({ ok: false, error: 'Internal server error' });
   }
 });
 
 // helper function that calls your GPT API with timeout
 async function askGPT(prompt) {
   try {
+    // Validate and sanitize prompt
+    if (typeof prompt !== 'string') {
+      console.error('[askGPT] Invalid prompt type:', typeof prompt);
+      return null;
+    }
+
+    const sanitizedPrompt = sanitizeString(prompt, 10000);
+
+    if (sanitizedPrompt.length === 0) {
+      console.error('[askGPT] Empty prompt after sanitization');
+      return null;
+    }
+
     console.log('[askGPT] Starting GPT request...');
 
     // Create abort controller for timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -200,7 +373,7 @@ async function askGPT(prompt) {
         model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: 'You are a supplement analysis assistant. Be concise and factual. Provide one paragraph analysis. Rate this supplement on a scale of 0 to 100' },
-          { role: 'user', content: prompt }
+          { role: 'user', content: sanitizedPrompt }
         ]
       }),
       signal: controller.signal
@@ -219,7 +392,7 @@ async function askGPT(prompt) {
     return data.choices?.[0]?.message?.content ?? null;
   } catch (error) {
     if (error.name === 'AbortError') {
-      console.error('[askGPT] Request timed out after 15 seconds');
+      console.error('[askGPT] Request timed out after 30 seconds');
     } else {
       console.error('[askGPT] Error calling GPT:', error.message);
     }
@@ -259,6 +432,4 @@ async function fromOpenFoodFacts(code){
     panel: null,
     source: 'OFF'
   };
-
-  mongoose.connect() 
 }

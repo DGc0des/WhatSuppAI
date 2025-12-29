@@ -17,6 +17,8 @@ export interface ScheduledSupplement {
   notification_enabled: boolean;
   notification_timing: NotificationTiming;
   notification_id: string | null;
+  taken: boolean;
+  taken_at: string | null;
   supplement: ScannedSupplement;
 }
 
@@ -57,6 +59,8 @@ export async function getScheduledSupplements(): Promise<ScheduledSupplement[]> 
       notification_enabled: item.notification_enabled || false,
       notification_timing: item.notification_timing || 'on-time',
       notification_id: item.notification_id || null,
+      taken: item.taken || false,
+      taken_at: item.taken_at || null,
       supplement: item.supplement
     }));
 
@@ -109,6 +113,8 @@ export async function getScheduledSupplementsForDate(date: string): Promise<Sche
       notification_enabled: item.notification_enabled || false,
       notification_timing: item.notification_timing || 'on-time',
       notification_id: item.notification_id || null,
+      taken: item.taken || false,
+      taken_at: item.taken_at || null,
       supplement: item.supplement
     }));
 
@@ -176,6 +182,8 @@ export async function addScheduledSupplement(
       notification_enabled: data.notification_enabled || false,
       notification_timing: data.notification_timing || 'on-time',
       notification_id: data.notification_id || null,
+      taken: data.taken || false,
+      taken_at: data.taken_at || null,
       supplement: data.supplement
     };
   } catch (error) {
@@ -205,6 +213,64 @@ export async function deleteScheduledSupplement(id: number): Promise<boolean> {
     return true;
   } catch (error) {
     console.error('[scheduleStorage] Error in deleteScheduledSupplement:', error);
+    return false;
+  }
+}
+
+/**
+ * Mark a scheduled supplement as taken
+ */
+export async function markSupplementAsTaken(id: number): Promise<boolean> {
+  try {
+    const userId = await ensureAuthenticated();
+
+    const { error } = await supabase
+      .from('ScheduledSupplements')
+      .update({
+        taken: true,
+        taken_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('[scheduleStorage] Error marking supplement as taken:', error);
+      throw error;
+    }
+
+    console.log('[scheduleStorage] ✅ Marked supplement as taken:', id);
+    return true;
+  } catch (error) {
+    console.error('[scheduleStorage] Error in markSupplementAsTaken:', error);
+    return false;
+  }
+}
+
+/**
+ * Unmark a scheduled supplement (mark as not taken)
+ */
+export async function unmarkSupplementAsTaken(id: number): Promise<boolean> {
+  try {
+    const userId = await ensureAuthenticated();
+
+    const { error } = await supabase
+      .from('ScheduledSupplements')
+      .update({
+        taken: false,
+        taken_at: null,
+      })
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('[scheduleStorage] Error unmarking supplement:', error);
+      throw error;
+    }
+
+    console.log('[scheduleStorage] ✅ Unmarked supplement:', id);
+    return true;
+  } catch (error) {
+    console.error('[scheduleStorage] Error in unmarkSupplementAsTaken:', error);
     return false;
   }
 }
@@ -259,6 +325,8 @@ export async function updateScheduledSupplement(
       notification_enabled: data.notification_enabled || false,
       notification_timing: data.notification_timing || 'on-time',
       notification_id: data.notification_id || null,
+      taken: data.taken || false,
+      taken_at: data.taken_at || null,
       supplement: data.supplement
     };
   } catch (error) {

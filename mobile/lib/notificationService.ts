@@ -1,6 +1,29 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+// Configure notification categories with actions (like Accept/Decline on a call)
+async function setupNotificationCategories() {
+  await Notifications.setNotificationCategoryAsync('supplement-reminder', [
+    {
+      identifier: 'taken',
+      buttonTitle: '✓ Taken',
+      options: {
+        opensAppToForeground: false, // Mark as taken in background without opening app
+      },
+    },
+    {
+      identifier: 'snooze',
+      buttonTitle: 'Snooze 15m',
+      options: {
+        opensAppToForeground: false,
+      },
+    },
+  ]);
+}
+
+// Initialize categories
+setupNotificationCategories();
+
 // Configure how notifications should be handled when app is in foreground
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -88,7 +111,8 @@ export async function scheduleSupplementNotification(
   supplementBrand: string | undefined,
   scheduledDate: Date,
   timing: NotificationTiming,
-  dosage?: string | null
+  dosage?: string | null,
+  scheduleId?: number
 ): Promise<string | null> {
   try {
     const hasPermission = await requestNotificationPermissions();
@@ -153,12 +177,18 @@ export async function scheduleSupplementNotification(
         title,
         body,
         sound: 'default',
-        priority: Notifications.AndroidNotificationPriority.HIGH,
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        categoryIdentifier: 'supplement-reminder',
         data: {
           supplementName,
+          supplementBrand,
+          dosage,
           scheduledDate: scheduledDate.toISOString(),
           timing,
+          scheduleId,
         },
+        // iOS specific - makes it appear as time-sensitive
+        interruptionLevel: 'timeSensitive' as any,
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
@@ -224,6 +254,55 @@ export async function getAllScheduledNotifications() {
 }
 
 /**
+ * Schedule a snooze notification (15 minutes later)
+ */
+export async function snoozeNotification(
+  supplementName: string,
+  supplementBrand: string | undefined,
+  dosage?: string | null
+): Promise<string | null> {
+  try {
+    const snoozeMinutes = 15;
+    const title = '💊 Supplement Reminder (Snoozed)';
+    let body = `Time to take ${supplementName}`;
+    if (supplementBrand) {
+      body += ` (${supplementBrand})`;
+    }
+    if (dosage) {
+      body += ` - ${dosage}`;
+    }
+
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        categoryIdentifier: 'supplement-reminder',
+        data: {
+          supplementName,
+          supplementBrand,
+          dosage,
+          isSnoozed: true,
+        },
+        interruptionLevel: 'timeSensitive' as any,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: snoozeMinutes * 60,
+        repeats: false,
+      },
+    });
+
+    console.log(`[Notifications] ✅ Snoozed notification for ${snoozeMinutes} minutes`);
+    return notificationId;
+  } catch (error) {
+    console.error('[Notifications] ❌ Error snoozing notification:', error);
+    return null;
+  }
+}
+
+/**
  * Test notification - schedules a notification in 10 seconds for testing
  */
 export async function testNotification(): Promise<void> {
@@ -238,10 +317,17 @@ export async function testNotification(): Promise<void> {
 
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: '🧪 Test Notification',
-        body: 'If you see this, notifications are working!',
+        title: '💊 Supplement Reminder',
+        body: 'Time to take Vitamin D - 2 capsules',
         sound: 'default',
-        priority: Notifications.AndroidNotificationPriority.HIGH,
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        categoryIdentifier: 'supplement-reminder',
+        data: {
+          supplementName: 'Vitamin D',
+          supplementBrand: 'Test Brand',
+          dosage: '2 capsules',
+        },
+        interruptionLevel: 'timeSensitive' as any,
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
@@ -252,6 +338,7 @@ export async function testNotification(): Promise<void> {
 
     console.log('[Notifications] ✅ Test notification scheduled:', notificationId);
     console.log('[Notifications] You should receive a notification in 10 seconds');
+    console.log('[Notifications] Try tapping "Taken" or "Snooze" buttons!');
   } catch (error) {
     console.error('[Notifications] ❌ Test notification failed:', error);
   }

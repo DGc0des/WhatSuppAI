@@ -289,6 +289,26 @@ export default function StackScreen() {
     const isInStack = inStackSet.has(item.barcode);
     const isExpanded = expandedHistoryId === item.id;
 
+    const renderLeftActions = () => (
+      <TouchableOpacity
+        style={[
+          styles.addToStackAction,
+          isInStack && styles.addToStackActionDisabled
+        ]}
+        onPress={() => {
+          if (!isInStack) handleAddToStackFromHistory(item);
+        }}
+        disabled={isInStack}
+      >
+        <Text style={[
+          styles.addToStackActionText,
+          isInStack && styles.addToStackActionTextDisabled
+        ]}>
+          {isInStack ? 'In Stack' : 'Add to Stack'}
+        </Text>
+      </TouchableOpacity>
+    );
+
     const renderRightActions = () => (
       <TouchableOpacity
         style={styles.deleteAction}
@@ -300,9 +320,12 @@ export default function StackScreen() {
 
     return (
       <Swipeable
+        renderLeftActions={renderLeftActions}
         renderRightActions={renderRightActions}
+        overshootLeft={false}
         overshootRight={false}
         friction={2}
+        leftThreshold={40}
         rightThreshold={40}
       >
         <TouchableOpacity
@@ -1288,6 +1311,26 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  addToStackAction: {
+    backgroundColor: theme.buttonSecondary,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    marginBottom: 8,
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
+  },
+  addToStackActionDisabled: {
+    backgroundColor: theme.borderLight,
+  },
+  addToStackActionText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  addToStackActionTextDisabled: {
+    color: theme.textMuted,
   },
   // Dosage inline inputs
   dosageRow: {

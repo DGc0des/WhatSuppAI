@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import * as ExpoLinking from 'expo-linking';
 import { supabase } from "../supabase-client";
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
@@ -33,8 +34,13 @@ export default function AuthScreen() {
         // Send password reset email
         // Note: Supabase doesn't tell us if the user exists for security reasons
         // So we always send the reset request and show a success message
-        // Uses Supabase's default password reset page
-        const { error: resetError } = await supabase.auth.resetPasswordForEmail(email);
+        // Use ExpoLinking.createURL to get the correct URL for both Expo Go and production
+        const redirectUrl = ExpoLinking.createURL('reset-password');
+        console.log('Password reset redirect URL:', redirectUrl);
+
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: redirectUrl,
+        });
 
         if (resetError) {
           // Check for specific error messages that indicate user doesn't exist

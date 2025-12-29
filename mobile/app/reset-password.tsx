@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as Linking from 'expo-linking';
 import { supabase } from '../supabase-client';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
@@ -12,17 +13,112 @@ export default function ResetPasswordScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
 
   const styles = createStyles(theme);
 
   useEffect(() => {
-    // Check if there's a valid session from the password reset link
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        Alert.alert('Error', 'Invalid or expired password reset link');
+    let isMounted = true;
+
+    const initFromResetLink = async () => {
+      try {
+        console.log('[Reset Password] Screen mounted, checking for deep link...');
+
+        // Get the initial URL that opened the app
+        const url = await Linking.getInitialURL();
+        console.log('[Reset Password] Initial URL:', url);
+
+        if (!url) {
+          // No URL means user navigated here directly without a reset link
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) {
+            Alert.alert('Error', 'Please use the password reset link from your email');
+            router.replace('/auth');
+            return;
+          }
+          setSessionReady(true);
+          return;
+        }
+
+        // Parse URL for parameters (handles both query params and hash fragments)
+        const parsedUrl = Linking.parse(url);
+        console.log('[Reset Password] Parsed URL:', JSON.stringify(parsedUrl, null, 2));
+
+        // Also check hash fragment which Supabase often uses
+        let params: any = { ...parsedUrl.queryParams };
+        if (url.includes('#')) {
+          const hashPart = url.split('#')[1];
+          if (hashPart) {
+            const hashParams = new URLSearchParams(hashPart);
+            hashParams.forEach((value, key) => {
+              params[key] = value;
+            });
+          }
+        }
+
+        console.log('[Reset Password] Final params:', JSON.stringify(params, null, 2));
+
+        // Check for errors
+        if (params.error) {
+          const msg = params.error_description
+            ? decodeURIComponent(params.error_description)
+            : 'Invalid or expired password reset link';
+          Alert.alert('Error', msg);
+          router.replace('/auth');
+          return;
+        }
+
+        // Handle different auth flows
+        if (params.access_token && params.refresh_token) {
+          console.log('[Reset Password] Setting session with tokens...');
+          const { error } = await supabase.auth.setSession({
+            access_token: params.access_token,
+            refresh_token: params.refresh_token,
+          });
+
+          if (error) {
+            console.error('[Reset Password] Session error:', error);
+            Alert.alert('Error', error.message);
+            router.replace('/auth');
+            return;
+          }
+
+          console.log('[Reset Password] Session set successfully');
+          if (isMounted) {
+            setSessionReady(true);
+          }
+        } else if (params.code) {
+          // PKCE flow
+          console.log('[Reset Password] Exchanging code for session...');
+          const { error } = await supabase.auth.exchangeCodeForSession(params.code);
+          if (error) {
+            console.error('[Reset Password] Code exchange error:', error);
+            Alert.alert('Error', error.message);
+            router.replace('/auth');
+            return;
+          }
+          console.log('[Reset Password] Code exchanged successfully');
+          if (isMounted) {
+            setSessionReady(true);
+          }
+        } else {
+          // No tokens or code found
+          console.log('[Reset Password] No auth tokens found in URL');
+          Alert.alert('Error', 'Invalid password reset link. Please request a new one.');
+          router.replace('/auth');
+        }
+      } catch (e: any) {
+        console.error('[Reset Password] Initialization error:', e);
+        Alert.alert('Error', e?.message ?? 'Something went wrong');
         router.replace('/auth');
       }
-    });
+    };
+
+    initFromResetLink();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleResetPassword = async () => {

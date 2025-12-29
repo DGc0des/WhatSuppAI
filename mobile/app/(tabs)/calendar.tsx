@@ -4,7 +4,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Calendar, DateData } from 'react-native-calendars';
 import { useFocusEffect } from '@react-navigation/native';
 import { getAllScannedSupplements, type ScannedSupplement } from '../../lib/storage';
-import { getScheduledSupplements, addScheduledSupplement, deleteScheduledSupplement, updateScheduledSupplement, type ScheduledSupplement } from '../../lib/scheduleStorage';
+import { getScheduledSupplements, addScheduledSupplement, deleteScheduledSupplement, updateScheduledSupplement, markSupplementAsTaken, unmarkSupplementAsTaken, type ScheduledSupplement } from '../../lib/scheduleStorage';
 import { scheduleSupplementNotification, cancelNotification, type NotificationTiming } from '../../lib/notificationService';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
@@ -323,7 +323,7 @@ export default function CalendarScreen() {
 
     // Convert local date/time to UTC for storage
     const utcDateTime = localDateTimeToUTC(selectedDate, time);
-    
+
     // Create local Date object for notification scheduling
     const [year, month, day] = selectedDate.split('-').map(Number);
     const [hour, minute] = time.split(':').map(Number);
@@ -336,19 +336,8 @@ export default function CalendarScreen() {
     console.log('[Calendar] Parsed local date (ISO):', localDate.toISOString());
     console.log('[Calendar] Notification timing:', notificationTiming);
 
-    // Schedule the notification (using local Date object)
-    const notificationId = await scheduleSupplementNotification(
-      supplement.name,
-      supplement.brand,
-      localDate,
-      notificationTiming,
-      dosage
-    );
-
-    console.log('[Calendar] Notification ID returned:', notificationId);
-
-    // Add to database with UTC date/time
-    await addScheduledSupplement(
+    // Step 1: Add to database first to get the schedule ID
+    const scheduledRecord = await addScheduledSupplement(
       supplementId,
       utcDateTime,
       recurrenceType,
@@ -357,8 +346,34 @@ export default function CalendarScreen() {
       dosage,
       true,
       notificationTiming,
-      notificationId
+      null // No notification ID yet
     );
+
+    if (!scheduledRecord) {
+      Alert.alert('Error', 'Failed to schedule supplement');
+      return;
+    }
+
+    console.log('[Calendar] Schedule created with ID:', scheduledRecord.id);
+
+    // Step 2: Schedule the notification with the schedule ID
+    const notificationId = await scheduleSupplementNotification(
+      supplement.name,
+      supplement.brand,
+      localDate,
+      notificationTiming,
+      dosage,
+      scheduledRecord.id // Pass the schedule ID
+    );
+
+    console.log('[Calendar] Notification ID returned:', notificationId);
+
+    // Step 3: Update the database record with the notification ID
+    if (notificationId) {
+      await updateScheduledSupplement(scheduledRecord.id, {
+        notification_id: notificationId
+      });
+    }
 
     await loadData();
     setShowAddModal(false);
@@ -416,6 +431,51 @@ export default function CalendarScreen() {
         }
       ]
     );
+  };
+
+  const isTakenToday = (schedule: ScheduledSupplement): boolean => {
+    if (!schedule.taken || !schedule.taken_at) {
+      return false;
+    }
+
+    // Convert taken_at timestamp to local date and compare with selected date
+    const takenDateObj = new Date(schedule.taken_at);
+    const takenLocalDate = `${takenDateObj.getFullYear()}-${String(takenDateObj.getMonth() + 1).padStart(2, '0')}-${String(takenDateObj.getDate()).padStart(2, '0')}`;
+
+    console.log('[Calendar] isTakenToday check:');
+    console.log('[Calendar]   Schedule ID:', schedule.id);
+    console.log('[Calendar]   Supplement:', schedule.supplement.name);
+    console.log('[Calendar]   taken:', schedule.taken);
+    console.log('[Calendar]   taken_at:', schedule.taken_at);
+    console.log('[Calendar]   takenLocalDate:', takenLocalDate);
+    console.log('[Calendar]   selectedDate:', selectedDate);
+    console.log('[Calendar]   Match?', takenLocalDate === selectedDate);
+
+    return takenLocalDate === selectedDate;
+  };
+
+  const handleToggleTaken = async (schedule: ScheduledSupplement, event: any) => {
+    event.stopPropagation();
+
+    const takenToday = isTakenToday(schedule);
+
+    if (takenToday) {
+      // Unmark as taken for today
+      const success = await unmarkSupplementAsTaken(schedule.id);
+      if (success) {
+        await loadData();
+      }
+    } else {
+      // Mark as taken for today and cancel notification if it exists
+      const success = await markSupplementAsTaken(schedule.id);
+      if (success) {
+        // Cancel the notification since it's already taken
+        if (schedule.notification_id) {
+          await cancelNotification(schedule.notification_id);
+        }
+        await loadData();
+      }
+    }
   };
 
   const handleUpdateTime = (schedule: ScheduledSupplement) => {
@@ -500,13 +560,14 @@ export default function CalendarScreen() {
       const [hour, minute] = newTime.split(':').map(Number);
       const localDate = new Date(year, month - 1, day, hour, minute, 0);
 
-      // Schedule new notification with updated time
+      // Schedule new notification with updated time (include schedule ID)
       newNotificationId = await scheduleSupplementNotification(
         timeUpdateSchedule.supplement.name,
         timeUpdateSchedule.supplement.brand,
         localDate,
         timeUpdateSchedule.notification_timing,
-        timeUpdateSchedule.dosage
+        timeUpdateSchedule.dosage,
+        timeUpdateSchedule.id // Pass the schedule ID
       );
     }
 
@@ -812,13 +873,14 @@ export default function CalendarScreen() {
       }
     }
 
-    // Schedule new notification
+    // Schedule new notification (include schedule ID)
     const notificationId = await scheduleSupplementNotification(
       schedule.supplement.name,
       schedule.supplement.brand,
       localDate,
       timing,
-      schedule.dosage
+      schedule.dosage,
+      schedule.id // Pass the schedule ID
     );
 
     // Update database (UTC date stays the same, only timing changes)
@@ -887,6 +949,7 @@ export default function CalendarScreen() {
   const renderScheduledItem = ({ item }: { item: ScheduledSupplement }) => {
     // Convert UTC time to local time for display
     const time = formatUTCTimeForDisplay(item.scheduled_date);
+    const takenToday = isTakenToday(item);
 
     const getRecurrenceLabel = () => {
       if (item.recurrence_type === 'daily') return '🔄 Daily';
@@ -913,67 +976,78 @@ export default function CalendarScreen() {
     };
 
     return (
-      <TouchableOpacity
-        style={styles.scheduledCard}
-        onPress={() => {
-          Alert.alert(
-            'Edit Schedule',
-            `${item.supplement.name}\n\nWhat would you like to edit?`,
-            [
-              {
-                text: 'Change Time',
-                onPress: () => handleUpdateTime(item)
-              },
-              {
-                text: 'Change Dosage',
-                onPress: () => handleUpdateDosage(item)
-              },
-              {
-                text: 'Change Frequency',
-                onPress: () => handleUpdateRecurrence(item)
-              },
-              {
-                text: item.notification_enabled ? 'Edit Notification' : 'Add Notification',
-                onPress: () => handleUpdateNotification(item)
-              },
-              {
-                text: 'Delete',
-                style: 'destructive',
-                onPress: () => handleDeleteSchedule(item.id)
-              },
-              {
-                text: 'Cancel',
-                style: 'cancel'
-              }
-            ]
-          );
-        }}
-        activeOpacity={0.7}
-      >
-        <View style={styles.scheduledContent}>
-          {item.supplement.image && (
-            <Image
-              source={{ uri: item.supplement.image }}
-              style={styles.scheduledImage}
-              resizeMode="contain"
-            />
-          )}
-          <View style={styles.scheduledInfo}>
-            <Text style={styles.scheduledTime}>{time}</Text>
-            <Text style={styles.scheduledName}>{item.supplement.name}</Text>
-            <Text style={styles.scheduledBrand}>{item.supplement.brand}</Text>
-            {item.dosage && (
-              <Text style={styles.dosageLabel}>💊 {item.dosage}</Text>
+      <View style={[styles.scheduledCard, takenToday && styles.scheduledCardTaken]}>
+        <TouchableOpacity
+          style={styles.scheduledCardContent}
+          onPress={() => {
+            Alert.alert(
+              'Edit Schedule',
+              `${item.supplement.name}\n\nWhat would you like to edit?`,
+              [
+                {
+                  text: 'Change Time',
+                  onPress: () => handleUpdateTime(item)
+                },
+                {
+                  text: 'Change Dosage',
+                  onPress: () => handleUpdateDosage(item)
+                },
+                {
+                  text: 'Change Frequency',
+                  onPress: () => handleUpdateRecurrence(item)
+                },
+                {
+                  text: item.notification_enabled ? 'Edit Notification' : 'Add Notification',
+                  onPress: () => handleUpdateNotification(item)
+                },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: () => handleDeleteSchedule(item.id)
+                },
+                {
+                  text: 'Cancel',
+                  style: 'cancel'
+                }
+              ]
+            );
+          }}
+          activeOpacity={0.7}
+        >
+          <View style={styles.scheduledContent}>
+            {item.supplement.image && (
+              <Image
+                source={{ uri: item.supplement.image }}
+                style={styles.scheduledImage}
+                resizeMode="contain"
+              />
             )}
-            {getRecurrenceLabel() && (
-              <Text style={styles.recurrenceLabel}>{getRecurrenceLabel()}</Text>
-            )}
-            {getNotificationLabel() && (
-              <Text style={styles.notificationLabel}>{getNotificationLabel()}</Text>
-            )}
+            <View style={styles.scheduledInfo}>
+              <Text style={[styles.scheduledTime, takenToday && styles.scheduledTextTaken]}>{time}</Text>
+              <Text style={[styles.scheduledName, takenToday && styles.scheduledTextTaken]}>{item.supplement.name}</Text>
+              <Text style={[styles.scheduledBrand, takenToday && styles.scheduledTextTaken]}>{item.supplement.brand}</Text>
+              {item.dosage && (
+                <Text style={[styles.dosageLabel, takenToday && styles.scheduledTextTaken]}>💊 {item.dosage}</Text>
+              )}
+              {getRecurrenceLabel() && (
+                <Text style={[styles.recurrenceLabel, takenToday && styles.scheduledTextTaken]}>{getRecurrenceLabel()}</Text>
+              )}
+              {getNotificationLabel() && (
+                <Text style={[styles.notificationLabel, takenToday && styles.scheduledTextTaken]}>{getNotificationLabel()}</Text>
+              )}
+            </View>
           </View>
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
+
+        {/* Checkmark button */}
+        <TouchableOpacity
+          style={[styles.takenButton, takenToday && styles.takenButtonActive]}
+          onPress={(e) => handleToggleTaken(item, e)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.takenButtonText}>{takenToday ? '✓' : '○'}</Text>
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -1525,6 +1599,9 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     backgroundColor: theme.cardBackground,
     borderBottomWidth: 1,
     borderBottomColor: theme.borderLight,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   title: {
     fontSize: 28,
@@ -1563,7 +1640,6 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   scheduledCard: {
     backgroundColor: theme.cardBackground,
     borderRadius: 12,
-    padding: 12,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: theme.cardBorder,
@@ -1572,10 +1648,44 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  scheduledCardTaken: {
+    backgroundColor: theme.inputBackground,
+    opacity: 0.7,
+  },
+  scheduledCardContent: {
+    flex: 1,
+    padding: 12,
   },
   scheduledContent: {
     flexDirection: 'row',
     marginBottom: 8,
+  },
+  scheduledTextTaken: {
+    textDecorationLine: 'line-through',
+    opacity: 0.6,
+  },
+  takenButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.inputBackground,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: theme.borderLight,
+  },
+  takenButtonActive: {
+    backgroundColor: theme.success,
+    borderColor: theme.success,
+  },
+  takenButtonText: {
+    fontSize: 24,
+    color: theme.text,
+    fontWeight: '700',
   },
   scheduledImage: {
     width: 50,

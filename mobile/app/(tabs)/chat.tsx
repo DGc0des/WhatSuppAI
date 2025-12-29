@@ -184,13 +184,48 @@ export default function ChatScreen() {
     }
   };
 
+  // Input sanitization function
+  const sanitizeInput = (input: string): string => {
+    let sanitized = input.trim();
+
+    // Remove special characters that could be used for injection
+    sanitized = sanitized
+      .replace(/\[SCHEDULE_ACTION\]/gi, '') // Remove action markers
+      .replace(/\[END_ACTION\]/gi, '')
+      .replace(/[<>]/g, '') // Remove HTML-like tags
+      .replace(/[\\\r\n\t]/g, ' ') // Replace special whitespace with space
+      .replace(/["'`]/g, '') // Remove quotes that could break string literals
+      .replace(/\{|\}/g, '') // Remove braces
+      .replace(/;/g, '') // Remove semicolons
+      .substring(0, 500); // Enforce length limit
+
+    // Collapse multiple spaces into one
+    sanitized = sanitized.replace(/\s+/g, ' ').trim();
+
+    return sanitized;
+  };
+
   const handleSend = async () => {
     if (!inputText.trim() || loading) return;
+
+    // Sanitize user input
+    const sanitizedContent = sanitizeInput(inputText);
+
+    // Validate sanitized input
+    if (sanitizedContent.length === 0) {
+      Alert.alert('Invalid Input', 'Please enter a valid message');
+      return;
+    }
+
+    if (sanitizedContent.length < 3) {
+      Alert.alert('Too Short', 'Please enter at least 3 characters');
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: inputText.trim(),
+      content: sanitizedContent,
       timestamp: new Date(),
     };
 
@@ -247,12 +282,40 @@ Provide your expert advice:`;
       const response = await askGpt(supplementPrompt);
       const responseText = response.text || 'Sorry, I couldn\'t generate a response.';
 
+      // Validation helper for parsed action data
+      const validateTime = (timeStr: string): boolean => {
+        const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+        return timeRegex.test(timeStr);
+      };
+
+      const validateDosage = (dosageStr: string): boolean => {
+        // Dosage should be reasonable length and contain valid characters
+        if (dosageStr.length > 50) return false;
+        // Only allow alphanumeric, spaces, and basic units
+        const dosageRegex = /^[a-zA-Z0-9\s\.\-]+$/;
+        return dosageRegex.test(dosageStr);
+      };
+
+      const sanitizeActionField = (field: string, maxLength: number = 100): string => {
+        return field
+          .replace(/[<>{}[\]\\]/g, '') // Remove potentially dangerous chars
+          .replace(/\s+/g, ' ')
+          .trim()
+          .substring(0, maxLength);
+      };
+
       // Parse schedule actions from response
       const actions: ScheduleAction[] = [];
       const actionRegex = /\[SCHEDULE_ACTION\]([\s\S]*?)\[END_ACTION\]/g;
       let match;
 
-      while ((match = actionRegex.exec(responseText)) !== null) {
+      // Limit number of actions to prevent abuse
+      const MAX_ACTIONS = 10;
+      let actionCount = 0;
+
+      while ((match = actionRegex.exec(responseText)) !== null && actionCount < MAX_ACTIONS) {
+        actionCount++;
+
         const actionBlock = match[1];
         const supplementMatch = actionBlock.match(/Supplement:\s*(.+)/i);
         const timeMatch = actionBlock.match(/Time:\s*(\d{1,2}:\d{2})/i);
@@ -261,34 +324,56 @@ Provide your expert advice:`;
         const daysMatch = actionBlock.match(/Days:\s*(.+)/i);
 
         if (supplementMatch && timeMatch && dosageMatch && frequencyMatch) {
-          const supplementName = supplementMatch[1].trim();
+          // Sanitize and validate extracted fields
+          const supplementName = sanitizeActionField(supplementMatch[1], 100);
+          const timeStr = timeMatch[1];
+          const dosageStr = sanitizeActionField(dosageMatch[1], 50);
+
+          // Validate time format
+          if (!validateTime(timeStr)) {
+            console.warn('[Chat] Invalid time format:', timeStr);
+            continue;
+          }
+
+          // Validate dosage format
+          if (!validateDosage(dosageStr)) {
+            console.warn('[Chat] Invalid dosage format:', dosageStr);
+            continue;
+          }
+
+          // Find supplement only from user's actual scanned supplements
           const supplement = scannedSupplements.find(s =>
             s.name.toLowerCase().includes(supplementName.toLowerCase()) ||
             supplementName.toLowerCase().includes(s.name.toLowerCase())
           );
 
           if (supplement) {
-            const time = timeMatch[1].padStart(5, '0'); // Ensure HH:MM format
+            const time = timeStr.padStart(5, '0'); // Ensure HH:MM format
             const today = getTodayDateString();
             // Convert local date/time to UTC for storage
             const dateTime = localDateTimeToUTC(today, time);
 
             let recurrenceDays: number[] | null = null;
             if (frequencyMatch[1].toLowerCase() === 'weekly' && daysMatch) {
-              const daysStr = daysMatch[1].trim();
+              const daysStr = sanitizeActionField(daysMatch[1], 50);
               const dayMap: { [key: string]: number } = {
                 'sun': 0, 'mon': 1, 'tue': 2, 'wed': 3, 'thu': 4, 'fri': 5, 'sat': 6
               };
               recurrenceDays = daysStr.toLowerCase().split(',')
                 .map(d => dayMap[d.trim().substring(0, 3)])
                 .filter(d => d !== undefined);
+
+              // Validate days array
+              if (recurrenceDays.length === 0) {
+                recurrenceDays = null;
+              }
             }
 
             actions.push({
               supplementId: supplement.id,
               supplementName: supplement.name,
               time: dateTime,
-              dosage: dosageMatch[1].trim(),
+              dosage: dosageStr,
               recurrenceType: frequencyMatch[1].toLowerCase() as 'once' | 'daily' | 'weekly',
               recurrenceDays,
             });
