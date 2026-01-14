@@ -142,7 +142,6 @@ async function fromOpenFoodFacts(code){
   const r = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`);
   if(!r.ok) return null;
   const j = await r.json();
-  console.log('OFF RAW >>>', JSON.stringify(j, null, 2));
   if(j.status!==1) return null;
   const p=j.product||{};
   return {
@@ -290,19 +289,29 @@ app.post('/identify', rateLimit(30, 60000), async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Invalid barcode - failed checksum validation' });
     }
 
-    // Try DSLD first (better supplement data)
-    console.log('[/identify] Fetching from DSLD...');
-    let doc = await fromDSLD(norm.ean13 || norm.upcA || barcode.raw);
+    // Try OpenFoodFacts first (has barcode index)
+    console.log('[/identify] Fetching from OpenFoodFacts...');
+    let doc = await fromOpenFoodFacts(norm.ean13 || norm.upcA);
+    console.log('[/identify] OpenFoodFacts result:', doc ? 'Found' : 'Not found');
 
-    if (doc) {
-      console.log('[/identify] DSLD result: Found');
-      console.log('[/identify] Product name:', doc.name);
-      console.log('[/identify] Has ingredients:', !!doc.ingredientsText);
-    } else {
-      console.log('[/identify] DSLD result: Not found');
-      console.log('[/identify] Trying OpenFoodFacts fallback...');
-      doc = await fromOpenFoodFacts(norm.ean13 || norm.upcA);
-      console.log('[/identify] OpenFoodFacts result:', doc ? 'Found' : 'Not found');
+    // If OpenFoodFacts found product but missing ingredients, search DSLD by product name
+    if (doc && !doc.ingredientsText && doc.name) {
+      console.log('[/identify] OpenFoodFacts missing ingredients, searching DSLD by name:', doc.name);
+      const dsldDoc = await fromDSLDByName(doc.name);
+      if (dsldDoc && dsldDoc.ingredientsText) {
+        console.log('[/identify] Found ingredients in DSLD!');
+        // Merge: keep OFF's barcode/images, use DSLD's ingredients
+        doc.ingredientsText = dsldDoc.ingredientsText;
+        doc.nutriments = dsldDoc.nutriments;
+        doc.source = 'OFF+DSLD';
+      }
+    }
+
+    // If not found in OpenFoodFacts at all, try DSLD by barcode (unlikely to work but worth trying)
+    if (!doc) {
+      console.log('[/identify] Trying DSLD by barcode...');
+      doc = await fromDSLD(norm.ean13 || norm.upcA || barcode.raw);
+      console.log('[/identify] DSLD result:', doc ? 'Found' : 'Not found');
     }
 
     let gptText = null;
@@ -639,6 +648,61 @@ async function fromDSLD(code){
     };
   } catch (error) {
     console.error('[fromDSLD] Error:', error.message);
+    return null;
+  }
+}
+
+// Search DSLD by product name (since DSLD doesn't index by barcode)
+async function fromDSLDByName(productName) {
+  try {
+    console.log('[fromDSLDByName] Searching for:', productName);
+
+    // Search DSLD by product name
+    const searchUrl = `https://api.ods.od.nih.gov/dsld/v9/search-filter?q=${encodeURIComponent(productName)}&size=5`;
+    const r = await fetch(searchUrl);
+
+    if (!r.ok) {
+      console.log('[fromDSLDByName] API returned status:', r.status);
+      return null;
+    }
+
+    const j = await r.json();
+    const results = j.hits || [];
+
+    if (results.length === 0) {
+      console.log('[fromDSLDByName] No results found');
+      return null;
+    }
+
+    console.log('[fromDSLDByName] Found', results.length, 'results');
+
+    // Get the first result
+    const hit = results[0];
+    const data = hit._source || hit;
+
+    console.log('[fromDSLDByName] Best match:', data.fullName || data.productName);
+
+    // Extract ingredients from allIngredients array
+    let ingredientsText = null;
+    if (data.allIngredients && Array.isArray(data.allIngredients)) {
+      const ingredients = data.allIngredients
+        .filter(ing => ing.name && ing.category !== 'other')
+        .map(ing => ing.name)
+        .filter(Boolean);
+
+      ingredientsText = ingredients.length > 0 ? ingredients.join(', ') : null;
+      console.log('[fromDSLDByName] Extracted', ingredients.length, 'ingredients');
+    }
+
+    return {
+      name: data.fullName || data.productName || null,
+      brand: data.brandName || null,
+      ingredientsText: ingredientsText,
+      nutriments: data.allIngredients ? { ingredient_rows: data.allIngredients } : null,
+      source: 'DSLD'
+    };
+  } catch (error) {
+    console.error('[fromDSLDByName] Error:', error.message);
     return null;
   }
 }
