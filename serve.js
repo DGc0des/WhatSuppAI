@@ -112,12 +112,49 @@ function validateBarcode(barcode) {
 app.listen(port, '0.0.0.0', () => {
   console.log(`Supp app running on http://0.0.0.0:${port}`);
 });
-
 app.get('/', (req, res) => {
   res.send('Up and Running');
 });
 
+// Test endpoint for DSLD API - use in Postman: GET /test-dsld/0612524953498
+app.get('/test-dsld/:barcode', async (req, res) => {
+  try {
+    const barcode = req.params.barcode;
+    console.log('[test-dsld] Testing barcode:', barcode);
 
+    const result = await fromDSLD(barcode);
+
+    res.json({
+      ok: true,
+      barcode: barcode,
+      found: !!result,
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
+async function fromOpenFoodFacts(code){
+  const r = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`);
+  if(!r.ok) return null;
+  const j = await r.json();
+  console.log('OFF RAW >>>', JSON.stringify(j, null, 2));
+  if(j.status!==1) return null;
+  const p=j.product||{};
+  return {
+    barcode: code,
+    name: p.product_name || p.generic_name || null,
+    brand: (p.brands||'').split(',')[0]?.trim() || null,
+    images: [p.image_front_url, p.image_url, p.image_small_url].filter(Boolean),
+    ingredientsText: p.ingredients_text || null,
+    panel: null,
+    source: 'OFF'
+  };
+}
 
 app.post('/gpt', rateLimit(20, 60000), async (req, res) => {
   try {
@@ -253,9 +290,20 @@ app.post('/identify', rateLimit(30, 60000), async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Invalid barcode - failed checksum validation' });
     }
 
-    console.log('[/identify] Fetching from OpenFoodFacts...');
-    let doc = await fromOpenFoodFacts(norm.ean13 || norm.upcA);
-    console.log('[/identify] OpenFoodFacts result:', doc ? 'Found' : 'Not found');
+    // Try DSLD first (better supplement data)
+    console.log('[/identify] Fetching from DSLD...');
+    let doc = await fromDSLD(norm.ean13 || norm.upcA || barcode.raw);
+
+    if (doc) {
+      console.log('[/identify] DSLD result: Found');
+      console.log('[/identify] Product name:', doc.name);
+      console.log('[/identify] Has ingredients:', !!doc.ingredientsText);
+    } else {
+      console.log('[/identify] DSLD result: Not found');
+      console.log('[/identify] Trying OpenFoodFacts fallback...');
+      doc = await fromOpenFoodFacts(norm.ean13 || norm.upcA);
+      console.log('[/identify] OpenFoodFacts result:', doc ? 'Found' : 'Not found');
+    }
 
     let gptText = null;
     let rating = null;
@@ -269,18 +317,39 @@ app.post('/identify', rateLimit(30, 60000), async (req, res) => {
       const safeBrand = sanitizeString(doc.brand || doc.brands || 'Unknown', 200);
       const safeIngredients = sanitizeString(doc.ingredientsText || doc.ingredients_text || 'Not available', 2000);
 
-      // Sanitize nutriments object
-      const safeNutriments = {};
+      // Sanitize nutriments object - handle both OpenFoodFacts and DSLD formats
+      let nutritionalInfo = 'Not available';
       if (doc.nutriments && typeof doc.nutriments === 'object') {
-        for (const [key, value] of Object.entries(doc.nutriments)) {
-          if (typeof key === 'string' && key.length < 100) {
-            const safeKey = sanitizeString(key, 100);
-            if (typeof value === 'number' || typeof value === 'string') {
-              safeNutriments[safeKey] = value;
+        // For DSLD data with ingredient_rows
+        if (doc.nutriments.ingredient_rows && Array.isArray(doc.nutriments.ingredient_rows)) {
+          const nutrients = doc.nutriments.ingredient_rows
+            .filter(ing => ing.quantity && ing.quantity.length > 0)
+            .map(ing => `${ing.name}: ${ing.quantity[0].quantity}${ing.quantity[0].unit || ''}`)
+            .slice(0, 20) // Limit to first 20 to avoid too much data
+            .join(', ');
+          nutritionalInfo = nutrients || 'Not available';
+        } else {
+          // For OpenFoodFacts simple key-value pairs
+          const safeNutriments = {};
+          for (const [key, value] of Object.entries(doc.nutriments)) {
+            if (typeof key === 'string' && key.length < 100) {
+              const safeKey = sanitizeString(key, 100);
+              if (typeof value === 'number' || typeof value === 'string') {
+                safeNutriments[safeKey] = value;
+              }
             }
           }
+          nutritionalInfo = JSON.stringify(safeNutriments, null, 2);
         }
       }
+
+      // Add debug logging to see what's being sent to GPT
+      console.log('[/identify] GPT Analysis Input:');
+      console.log('  Name:', safeName);
+      console.log('  Brand:', safeBrand);
+      console.log('  Ingredients length:', safeIngredients.length);
+      console.log('  Ingredients preview:', safeIngredients.substring(0, 200));
+      console.log('  Nutritional info preview:', nutritionalInfo.substring(0, 200));
 
       const prompt = `
 Analyze this supplement and provide detailed scores.
@@ -288,7 +357,7 @@ Analyze this supplement and provide detailed scores.
 Name: ${safeName}
 Brand: ${safeBrand}
 Ingredients: ${safeIngredients}
-Nutritional info: ${JSON.stringify(safeNutriments, null, 2)}
+Nutritional info: ${nutritionalInfo}
 
 Provide scores (0-100) for each category and an overall analysis.
 Format your response EXACTLY as follows:
@@ -392,7 +461,7 @@ async function askGPT(prompt) {
     return data.choices?.[0]?.message?.content ?? null;
   } catch (error) {
     if (error.name === 'AbortError') {
-      console.error('[askGPT] Request timed out after 30 seconds');
+      console.error('[askGPT] Request timed out after 15 seconds');
     } else {
       console.error('[askGPT] Error calling GPT:', error.message);
     }
@@ -416,20 +485,190 @@ function isValidEAN13(code){
   const sum=ds.reverse().reduce((a,d,i)=>a+d*(i%2===0?3:1),0);
   return ((10-(sum%10))%10)===chk;
 }
-async function fromOpenFoodFacts(code){
-  const r = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`);
-  if(!r.ok) return null;
-  const j = await r.json();
-  console.log('OFF RAW >>>', JSON.stringify(j, null, 2)); 
-  if(j.status!==1) return null;
-  const p=j.product||{};
-  return {
-    barcode: code,
-    name: p.product_name || p.generic_name || null,
-    brand: (p.brands||'').split(',')[0]?.trim() || null,
-    images: [p.image_front_url, p.image_url, p.image_small_url].filter(Boolean),
-    ingredientsText: p.ingredients_text || null,
-    panel: null,
-    source: 'OFF'
-  };
+
+async function fromDSLD(code){
+  try {
+    console.log('[fromDSLD] Searching for barcode:', code);
+
+    // Format the barcode with spaces (DSLD stores UPCs as "0 123456 789012")
+    const formattedCode = code.replace(/(\d)(\d{6})(\d{5,6})/, '$1 $2 $3');
+    console.log('[fromDSLD] Formatted barcode:', formattedCode);
+
+    // Try multiple search strategies
+    // Strategy 1: Search by formatted UPC with spaces
+    let searchUrl = `https://api.ods.od.nih.gov/dsld/v9/search-filter?q="${encodeURIComponent(formattedCode)}"&size=5`;
+    console.log('[fromDSLD] Search URL (formatted):', searchUrl);
+
+    let r = await fetch(searchUrl);
+    let j = null;
+
+    if(r.ok) {
+      j = await r.json();
+      console.log('[fromDSLD] Formatted search returned', j.hits?.length || 0, 'results');
+    }
+
+    // Strategy 2: If no results, try with unformatted code
+    if (!j || !j.hits || j.hits.length === 0) {
+      console.log('[fromDSLD] No formatted results, trying unformatted search...');
+      searchUrl = `https://api.ods.od.nih.gov/dsld/v9/search-filter?q=${encodeURIComponent(code)}&size=5`;
+      console.log('[fromDSLD] Search URL (unformatted):', searchUrl);
+
+      r = await fetch(searchUrl);
+      if(!r.ok) {
+        console.log('[fromDSLD] API returned status:', r.status);
+        return null;
+      }
+
+      j = await r.json();
+      console.log('[fromDSLD] Unformatted search returned', j.hits?.length || 0, 'results');
+    }
+
+    // Check if we got any results (DSLD uses "hits" not "results")
+    const results = j.hits || j.results || [];
+    if (!Array.isArray(results) || results.length === 0) {
+      console.log('[fromDSLD] No results found in either search');
+      return null;
+    }
+
+    // Get the first result (highest relevance)
+    const hit = results[0];
+    const product = hit._source || hit;
+    const productId = hit._id || product.id || product.dsldId;
+
+    console.log('[fromDSLD] Found product:', product.fullName || product.productName || product.product_name);
+    console.log('[fromDSLD] Product ID:', productId);
+
+    // Fetch full label details if we have an id
+    let fullLabel = null;
+    if (productId) {
+      console.log('[fromDSLD] Fetching full label for ID:', productId);
+      const labelUrl = `https://api.ods.od.nih.gov/dsld/v9/label/${productId}`;
+      const labelResponse = await fetch(labelUrl);
+      if (labelResponse.ok) {
+        fullLabel = await labelResponse.json();
+        console.log('[fromDSLD] Full label retrieved');
+      }
+    }
+
+    // Use full label data if available, otherwise use search result
+    const data = fullLabel || product;
+
+    // Extract ingredients text - handle both API response formats
+    let ingredientsText = null;
+
+    // Format 1: allIngredients array (from search results)
+    if (data.allIngredients && Array.isArray(data.allIngredients)) {
+      console.log('[fromDSLD] Total allIngredients:', data.allIngredients.length);
+
+      const ingredients = data.allIngredients
+        .filter(ing => ing.name && ing.category !== 'other')
+        .map(ing => ing.name)
+        .filter(Boolean);
+
+      console.log('[fromDSLD] Filtered ingredients count:', ingredients.length);
+      ingredientsText = ingredients.length > 0 ? ingredients.join(', ') : null;
+      console.log('[fromDSLD] Ingredients text length:', ingredientsText?.length || 0);
+    }
+    // Format 2: ingredientRows array (from label detail endpoint)
+    else if (data.ingredientRows && Array.isArray(data.ingredientRows)) {
+      console.log('[fromDSLD] Total ingredient rows:', data.ingredientRows.length);
+
+      const ingredients = data.ingredientRows
+        .filter(ing => ing.name && ing.category !== 'other')
+        .map(ing => {
+          const quantities = ing.quantity || [];
+          if (quantities.length > 0 && quantities[0].quantity) {
+            return `${ing.name} (${quantities[0].quantity}${quantities[0].unit || ''})`;
+          }
+          return ing.name;
+        })
+        .filter(Boolean);
+
+      console.log('[fromDSLD] Filtered ingredients count:', ingredients.length);
+      ingredientsText = ingredients.length > 0 ? ingredients.join(', ') : null;
+      console.log('[fromDSLD] Ingredients text length:', ingredientsText?.length || 0);
+    }
+
+    // Add other ingredients if present
+    if (data.otheringredients && data.otheringredients.ingredients) {
+      console.log('[fromDSLD] Other ingredients found:', data.otheringredients.ingredients.length);
+      const otherIngs = data.otheringredients.ingredients
+        .map(ing => ing.name)
+        .filter(Boolean)
+        .join(', ');
+      if (otherIngs) {
+        console.log('[fromDSLD] Other ingredients text:', otherIngs);
+        ingredientsText = ingredientsText
+          ? `${ingredientsText}. Other ingredients: ${otherIngs}`
+          : `Other ingredients: ${otherIngs}`;
+      }
+    }
+
+    console.log('[fromDSLD] Successfully parsed product:', data.fullName || data.productName);
+    console.log('[fromDSLD] Final ingredientsText:', ingredientsText || 'null');
+
+    // Try to find product image using GPT
+    let productImages = [];
+    const productName = data.fullName || data.productName;
+    const brandName = data.brandName;
+
+    if (productName && brandName) {
+      console.log('[fromDSLD] Attempting to find product image using GPT...');
+      try {
+        const imageUrl = await findProductImageWithGPT(productName, brandName);
+        if (imageUrl) {
+          productImages = [imageUrl];
+          console.log('[fromDSLD] Found product image:', imageUrl);
+        }
+      } catch (error) {
+        console.error('[fromDSLD] Error searching for image:', error.message);
+      }
+    }
+
+    return {
+      barcode: code,
+      name: productName || data.product_name || null,
+      brand: brandName || data.brand_name || null,
+      images: productImages,
+      ingredientsText: ingredientsText,
+      nutriments: (data.ingredientRows || data.allIngredients)
+        ? { ingredient_rows: data.ingredientRows || data.allIngredients }
+        : null,
+      panel: null,
+      source: 'DSLD'
+    };
+  } catch (error) {
+    console.error('[fromDSLD] Error:', error.message);
+    return null;
+  }
+}
+
+// Helper function to find product image using GPT
+async function findProductImageWithGPT(productName, brandName) {
+  try {
+    const prompt = `Find a direct image URL for this supplement product:
+Product: ${productName}
+Brand: ${brandName}
+
+Instructions:
+1. Search for the official product page on the brand's website or major retailers (Amazon, iHerb, Vitacost, etc.)
+2. Return ONLY the direct image URL (must end in .jpg, .jpeg, .png, or .webp)
+3. The image should be high quality and show the product front label
+4. If you cannot find a reliable image URL, respond with "NO_IMAGE_FOUND"
+
+Return only the image URL or "NO_IMAGE_FOUND", nothing else.`;
+
+    const response = await askGPT(prompt);
+
+    if (!response || response.includes('NO_IMAGE_FOUND')) {
+      return null;
+    }
+
+    // Extract URL from response (in case GPT adds extra text)
+    const urlMatch = response.match(/(https?:\/\/[^\s]+\.(jpg|jpeg|png|webp))/i);
+    return urlMatch ? urlMatch[1] : null;
+  } catch (error) {
+    console.error('[findProductImageWithGPT] Error:', error.message);
+    return null;
+  }
 }

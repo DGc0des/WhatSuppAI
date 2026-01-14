@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ScrollView, Image, Alert, TextInput, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Calendar, DateData } from 'react-native-calendars';
@@ -433,7 +433,7 @@ export default function CalendarScreen() {
     );
   };
 
-  const isTakenToday = (schedule: ScheduledSupplement): boolean => {
+  const isTakenToday = useCallback((schedule: ScheduledSupplement): boolean => {
     if (!schedule.taken || !schedule.taken_at) {
       return false;
     }
@@ -442,17 +442,8 @@ export default function CalendarScreen() {
     const takenDateObj = new Date(schedule.taken_at);
     const takenLocalDate = `${takenDateObj.getFullYear()}-${String(takenDateObj.getMonth() + 1).padStart(2, '0')}-${String(takenDateObj.getDate()).padStart(2, '0')}`;
 
-    console.log('[Calendar] isTakenToday check:');
-    console.log('[Calendar]   Schedule ID:', schedule.id);
-    console.log('[Calendar]   Supplement:', schedule.supplement.name);
-    console.log('[Calendar]   taken:', schedule.taken);
-    console.log('[Calendar]   taken_at:', schedule.taken_at);
-    console.log('[Calendar]   takenLocalDate:', takenLocalDate);
-    console.log('[Calendar]   selectedDate:', selectedDate);
-    console.log('[Calendar]   Match?', takenLocalDate === selectedDate);
-
     return takenLocalDate === selectedDate;
-  };
+  }, [selectedDate]);
 
   const handleToggleTaken = async (schedule: ScheduledSupplement, event: any) => {
     event.stopPropagation();
@@ -899,7 +890,7 @@ export default function CalendarScreen() {
     }
   };
 
-  const getSupplementsForDate = () => {
+  const supplementsForDate = useMemo(() => {
     if (!selectedDate) return [];
 
     try {
@@ -908,9 +899,6 @@ export default function CalendarScreen() {
 
       return scheduledSupplements.filter(item => {
         try {
-          // Convert UTC date to local date string for comparison
-          const itemLocalDate = utcToLocalDateString(item.scheduled_date);
-
           // For one-time schedules, check exact date match (in local timezone)
           if (item.recurrence_type === 'once') {
             return utcDateMatchesLocalDate(item.scheduled_date, selectedDate);
@@ -930,7 +918,7 @@ export default function CalendarScreen() {
             // Convert the UTC scheduled date to local date string for comparison
             const scheduleLocalDate = utcToLocalDateString(item.scheduled_date);
             // Check if the selected date is on or after the start date AND matches one of the recurrence days
-            return selectedDate >= scheduleLocalDate && 
+            return selectedDate >= scheduleLocalDate &&
                    item.recurrence_days.includes(selectedDay);
           }
 
@@ -944,7 +932,7 @@ export default function CalendarScreen() {
       console.error('[Calendar] Error in getSupplementsForDate:', error);
       return [];
     }
-  };
+  }, [selectedDate, scheduledSupplements]);
 
   const renderScheduledItem = ({ item }: { item: ScheduledSupplement }) => {
     // Convert UTC time to local time for display
@@ -1108,14 +1096,14 @@ export default function CalendarScreen() {
           </TouchableOpacity>
         </View>
 
-        {getSupplementsForDate().length === 0 ? (
+        {supplementsForDate.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>No supplements scheduled</Text>
             <Text style={styles.emptySubtext}>Tap + Add to schedule a supplement</Text>
           </View>
         ) : (
           <FlatList
-            data={getSupplementsForDate()}
+            data={supplementsForDate}
             keyExtractor={(item) => String(item.id)}
             renderItem={renderScheduledItem}
             contentContainerStyle={styles.list}

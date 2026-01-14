@@ -16,7 +16,15 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
 import { askGpt } from '../../lib/api';
 import { getAllStack, type Supplement } from '../../lib/storage';
-import { getScheduledSupplements, addScheduledSupplement, type ScheduledSupplement } from '../../lib/scheduleStorage';
+import {
+  getScheduledSupplements,
+  addScheduledSupplement,
+  updateScheduledSupplement,
+  deleteScheduledSupplement,
+  markSupplementAsTaken,
+  unmarkSupplementAsTaken,
+  type ScheduledSupplement
+} from '../../lib/scheduleStorage';
 import { utcToLocalTimeString, getTodayDateString, localDateTimeToUTC } from '../../lib/timezoneUtils';
 
 interface ScheduleAction {
@@ -28,12 +36,35 @@ interface ScheduleAction {
   recurrenceDays?: number[] | null;
 }
 
+interface MarkTakenAction {
+  scheduleId: number;
+  supplementName: string;
+  mark: boolean; // true = mark as taken, false = unmark
+}
+
+interface UpdateDosageAction {
+  scheduleId: number;
+  supplementName: string;
+  newDosage: string;
+}
+
+interface DeleteScheduleAction {
+  scheduleId: number;
+  supplementName: string;
+}
+
+type Action =
+  | { type: 'schedule'; data: ScheduleAction }
+  | { type: 'mark_taken'; data: MarkTakenAction }
+  | { type: 'update_dosage'; data: UpdateDosageAction }
+  | { type: 'delete_schedule'; data: DeleteScheduleAction };
+
 interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
-  actions?: ScheduleAction[];
+  actions?: Action[];
 }
 
 export default function ChatScreen() {
@@ -45,7 +76,7 @@ export default function ChatScreen() {
     {
       id: '1',
       role: 'system',
-      content: 'Hello! I\'m your supplement expert. I can help you with:\n\n• Information about supplements and vitamins\n• Schedule your scanned supplements\n• Optimize your supplement routine\n• Answer questions about dosage and timing\n\nHow can I help you today?',
+      content: 'Hello! I\'m your supplement expert. I can help you with:\n\n• Information about supplements and vitamins\n• Schedule your scanned supplements\n• Mark supplements as taken or not taken\n• Update dosage for your schedules\n• Delete schedules\n• Optimize your supplement routine\n• Answer questions about dosage and timing\n\nHow can I help you today?',
       timestamp: new Date(),
     },
   ]);
@@ -100,7 +131,7 @@ export default function ChatScreen() {
         const today = getTodayDateString();
         dateTime = localDateTimeToUTC(today, action.time);
       }
-      
+
       await addScheduledSupplement(
         action.supplementId,
         dateTime,
@@ -131,58 +162,83 @@ export default function ChatScreen() {
     }
   };
 
-  const executeAllSchedules = async (actions: ScheduleAction[]) => {
+  const executeMarkTakenAction = async (action: MarkTakenAction) => {
     try {
-      for (const action of actions) {
-        // Parse and convert to UTC (same logic as executeScheduleAction)
-        let dateTime: string;
-        if (action.time.endsWith('Z') || action.time.includes('T') && action.time.includes(':')) {
-          // Already in UTC ISO format or close to it
-          dateTime = action.time.includes('Z') ? action.time : action.time + 'Z';
-        } else if (action.time.includes('T')) {
-          // Format: YYYY-MM-DDTHH:MM:00 (assume local time)
-          const [datePart, timePart] = action.time.split('T');
-          const timeOnly = timePart.split(':').slice(0, 2).join(':');
-          dateTime = localDateTimeToUTC(datePart, timeOnly);
-        } else if (action.time.includes(' ')) {
-          // Format: YYYY-MM-DD HH:MM (assume local time)
-          const [datePart, timePart] = action.time.split(' ');
-          dateTime = localDateTimeToUTC(datePart, timePart);
-        } else {
-          // Fallback: use today's date with the time (assume local time)
-          const today = getTodayDateString();
-          dateTime = localDateTimeToUTC(today, action.time);
-        }
-        
-        await addScheduledSupplement(
-          action.supplementId,
-          dateTime,
-          action.recurrenceType,
-          action.recurrenceDays || null,
-          null,
-          action.dosage
-        );
+      if (action.mark) {
+        await markSupplementAsTaken(action.scheduleId);
+      } else {
+        await unmarkSupplementAsTaken(action.scheduleId);
       }
 
       await loadData();
 
-      Alert.alert(
-        'Success',
-        `All ${actions.length} supplements have been scheduled!`,
-        [{ text: 'OK' }]
-      );
-
       const confirmMessage: Message = {
         id: Date.now().toString(),
         role: 'system',
-        content: `✓ All ${actions.length} supplements scheduled successfully!`,
+        content: `✓ ${action.supplementName} marked as ${action.mark ? 'taken' : 'not taken'}!`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, confirmMessage]);
     } catch (error: any) {
-      Alert.alert('Error', `Failed to schedule: ${error.message}`);
+      Alert.alert('Error', `Failed to update: ${error.message}`);
     }
   };
+
+  const executeUpdateDosageAction = async (action: UpdateDosageAction) => {
+    try {
+      await updateScheduledSupplement(action.scheduleId, {
+        dosage: action.newDosage,
+      });
+
+      await loadData();
+
+      const confirmMessage: Message = {
+        id: Date.now().toString(),
+        role: 'system',
+        content: `✓ ${action.supplementName} dosage updated to ${action.newDosage}!`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, confirmMessage]);
+    } catch (error: any) {
+      Alert.alert('Error', `Failed to update dosage: ${error.message}`);
+    }
+  };
+
+  const executeDeleteScheduleAction = async (action: DeleteScheduleAction) => {
+    try {
+      await deleteScheduledSupplement(action.scheduleId);
+
+      await loadData();
+
+      const confirmMessage: Message = {
+        id: Date.now().toString(),
+        role: 'system',
+        content: `✓ ${action.supplementName} schedule deleted!`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, confirmMessage]);
+    } catch (error: any) {
+      Alert.alert('Error', `Failed to delete schedule: ${error.message}`);
+    }
+  };
+
+  const executeAction = async (action: Action) => {
+    switch (action.type) {
+      case 'schedule':
+        await executeScheduleAction(action.data);
+        break;
+      case 'mark_taken':
+        await executeMarkTakenAction(action.data);
+        break;
+      case 'update_dosage':
+        await executeUpdateDosageAction(action.data);
+        break;
+      case 'delete_schedule':
+        await executeDeleteScheduleAction(action.data);
+        break;
+    }
+  };
+
 
   // Input sanitization function
   const sanitizeInput = (input: string): string => {
@@ -244,7 +300,9 @@ export default function ChatScreen() {
             // Convert UTC time to local time for display
             const time = utcToLocalTimeString(s.scheduled_date);
             const recurrence = s.recurrence_type === 'daily' ? 'daily' : s.recurrence_type === 'weekly' ? 'weekly' : 'once';
-            return `- ${s.supplement.name}: ${time} (${recurrence})`;
+            const takenStatus = s.taken ? ' [TAKEN]' : '';
+            const dosageInfo = s.dosage ? ` (${s.dosage})` : '';
+            return `- ID:${s.id} | ${s.supplement.name}: ${time} ${recurrence}${dosageInfo}${takenStatus}`;
           }).join('\n')
         : 'No schedules yet';
 
@@ -261,17 +319,45 @@ ${scheduledList}
 
 IMPORTANT: When the user asks about "their supplements" or "their stack", refer to the list above. This is THEIR personal data that you CAN see and access.
 
+CAPABILITIES - You can help users with:
+1. Scheduling supplements
+2. Marking supplements as taken or not taken
+3. Updating dosage for scheduled supplements
+4. Deleting schedules
+5. Answering supplement questions
+
 INSTRUCTIONS:
 1. If asked about their supplements, list what's shown in "SUPPLEMENT STACK" above
-2. If the user asks to schedule supplements or optimize timing, suggest specific schedules
-3. When suggesting schedules, format your response with clear action items using this EXACT format:
+2. If asked about their schedule, refer to "CURRENT SCHEDULE" (note the ID numbers and TAKEN status)
+3. When the user asks to schedule, mark as taken, update dosage, or delete schedules, format actions using these EXACT formats:
 
+   **TO SCHEDULE A SUPPLEMENT:**
    [SCHEDULE_ACTION]
    - Supplement: [exact name from stack list]
    - Time: [HH:MM]
    - Dosage: [e.g., "2 capsules", "1 tablet"]
    - Frequency: [once/daily/weekly]
    - Days: [if weekly, list days like "Mon,Wed,Fri" or leave empty]
+   [END_ACTION]
+
+   **TO MARK A SUPPLEMENT AS TAKEN/NOT TAKEN:**
+   [MARK_TAKEN_ACTION]
+   - ScheduleID: [ID from schedule list, e.g., "123"]
+   - SupplementName: [name for display]
+   - Mark: [true for taken, false for not taken]
+   [END_ACTION]
+
+   **TO UPDATE DOSAGE:**
+   [UPDATE_DOSAGE_ACTION]
+   - ScheduleID: [ID from schedule list]
+   - SupplementName: [name for display]
+   - NewDosage: [e.g., "3 capsules"]
+   [END_ACTION]
+
+   **TO DELETE A SCHEDULE:**
+   [DELETE_SCHEDULE_ACTION]
+   - ScheduleID: [ID from schedule list]
+   - SupplementName: [name for display]
    [END_ACTION]
 
 4. For general supplement questions, provide helpful, accurate information
@@ -304,18 +390,17 @@ Provide your expert advice:`;
           .substring(0, maxLength);
       };
 
-      // Parse schedule actions from response
-      const actions: ScheduleAction[] = [];
-      const actionRegex = /\[SCHEDULE_ACTION\]([\s\S]*?)\[END_ACTION\]/g;
-      let match;
+      // Parse all types of actions from response
+      const actions: Action[] = [];
 
       // Limit number of actions to prevent abuse
       const MAX_ACTIONS = 10;
-      let actionCount = 0;
 
-      while ((match = actionRegex.exec(responseText)) !== null && actionCount < MAX_ACTIONS) {
-        actionCount++;
+      // Parse SCHEDULE_ACTION
+      const scheduleRegex = /\[SCHEDULE_ACTION\]([\s\S]*?)\[END_ACTION\]/g;
+      let match;
 
+      while ((match = scheduleRegex.exec(responseText)) !== null && actions.length < MAX_ACTIONS) {
         const actionBlock = match[1];
         const supplementMatch = actionBlock.match(/Supplement:\s*(.+)/i);
         const timeMatch = actionBlock.match(/Time:\s*(\d{1,2}:\d{2})/i);
@@ -370,19 +455,88 @@ Provide your expert advice:`;
             }
 
             actions.push({
-              supplementId: supplement.id,
-              supplementName: supplement.name,
-              time: dateTime,
-              dosage: dosageStr,
-              recurrenceType: frequencyMatch[1].toLowerCase() as 'once' | 'daily' | 'weekly',
-              recurrenceDays,
+              type: 'schedule',
+              data: {
+                supplementId: supplement.id,
+                supplementName: supplement.name,
+                time: dateTime,
+                dosage: dosageStr,
+                recurrenceType: frequencyMatch[1].toLowerCase() as 'once' | 'daily' | 'weekly',
+                recurrenceDays,
+              }
             });
           }
         }
       }
 
-      // Remove action blocks from the response text shown to user
-      const cleanedResponse = responseText.replace(/\[SCHEDULE_ACTION\][\s\S]*?\[END_ACTION\]/g, '').trim();
+      // Parse MARK_TAKEN_ACTION
+      const markTakenRegex = /\[MARK_TAKEN_ACTION\]([\s\S]*?)\[END_ACTION\]/g;
+      while ((match = markTakenRegex.exec(responseText)) !== null && actions.length < MAX_ACTIONS) {
+        const actionBlock = match[1];
+        const scheduleIdMatch = actionBlock.match(/ScheduleID:\s*(\d+)/i);
+        const supplementNameMatch = actionBlock.match(/SupplementName:\s*(.+)/i);
+        const markMatch = actionBlock.match(/Mark:\s*(true|false)/i);
+
+        if (scheduleIdMatch && supplementNameMatch && markMatch) {
+          actions.push({
+            type: 'mark_taken',
+            data: {
+              scheduleId: parseInt(scheduleIdMatch[1]),
+              supplementName: sanitizeActionField(supplementNameMatch[1], 100),
+              mark: markMatch[1].toLowerCase() === 'true',
+            }
+          });
+        }
+      }
+
+      // Parse UPDATE_DOSAGE_ACTION
+      const updateDosageRegex = /\[UPDATE_DOSAGE_ACTION\]([\s\S]*?)\[END_ACTION\]/g;
+      while ((match = updateDosageRegex.exec(responseText)) !== null && actions.length < MAX_ACTIONS) {
+        const actionBlock = match[1];
+        const scheduleIdMatch = actionBlock.match(/ScheduleID:\s*(\d+)/i);
+        const supplementNameMatch = actionBlock.match(/SupplementName:\s*(.+)/i);
+        const newDosageMatch = actionBlock.match(/NewDosage:\s*(.+)/i);
+
+        if (scheduleIdMatch && supplementNameMatch && newDosageMatch) {
+          const dosageStr = sanitizeActionField(newDosageMatch[1], 50);
+          if (validateDosage(dosageStr)) {
+            actions.push({
+              type: 'update_dosage',
+              data: {
+                scheduleId: parseInt(scheduleIdMatch[1]),
+                supplementName: sanitizeActionField(supplementNameMatch[1], 100),
+                newDosage: dosageStr,
+              }
+            });
+          }
+        }
+      }
+
+      // Parse DELETE_SCHEDULE_ACTION
+      const deleteScheduleRegex = /\[DELETE_SCHEDULE_ACTION\]([\s\S]*?)\[END_ACTION\]/g;
+      while ((match = deleteScheduleRegex.exec(responseText)) !== null && actions.length < MAX_ACTIONS) {
+        const actionBlock = match[1];
+        const scheduleIdMatch = actionBlock.match(/ScheduleID:\s*(\d+)/i);
+        const supplementNameMatch = actionBlock.match(/SupplementName:\s*(.+)/i);
+
+        if (scheduleIdMatch && supplementNameMatch) {
+          actions.push({
+            type: 'delete_schedule',
+            data: {
+              scheduleId: parseInt(scheduleIdMatch[1]),
+              supplementName: sanitizeActionField(supplementNameMatch[1], 100),
+            }
+          });
+        }
+      }
+
+      // Remove all action blocks from the response text shown to user
+      const cleanedResponse = responseText
+        .replace(/\[SCHEDULE_ACTION\][\s\S]*?\[END_ACTION\]/g, '')
+        .replace(/\[MARK_TAKEN_ACTION\][\s\S]*?\[END_ACTION\]/g, '')
+        .replace(/\[UPDATE_DOSAGE_ACTION\][\s\S]*?\[END_ACTION\]/g, '')
+        .replace(/\[DELETE_SCHEDULE_ACTION\][\s\S]*?\[END_ACTION\]/g, '')
+        .trim();
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -440,38 +594,61 @@ Provide your expert advice:`;
         {/* Render action buttons if available */}
         {!isUser && item.actions && item.actions.length > 0 && (
           <View style={styles.actionsContainer}>
-            {item.actions.length === 1 ? (
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => executeScheduleAction(item.actions![0])}
-              >
-                <Text style={styles.actionButtonText}>
-                  📅 Schedule {item.actions[0].supplementName}
-                </Text>
-              </TouchableOpacity>
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => executeAllSchedules(item.actions!)}
-                >
-                  <Text style={styles.actionButtonText}>
-                    📅 Schedule All ({item.actions.length})
-                  </Text>
-                </TouchableOpacity>
-                {item.actions.map((action, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={[styles.actionButton, styles.secondaryActionButton]}
-                    onPress={() => executeScheduleAction(action)}
-                  >
-                    <Text style={styles.secondaryActionButtonText}>
-                      {action.supplementName} at {action.time.split('T')[1].substring(0, 5)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </>
-            )}
+            {item.actions.map((action, index) => {
+              const getActionButton = () => {
+                switch (action.type) {
+                  case 'schedule':
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        style={styles.actionButton}
+                        onPress={() => executeAction(action)}
+                      >
+                        <Text style={styles.actionButtonText}>
+                          📅 Schedule {action.data.supplementName}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  case 'mark_taken':
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        style={[styles.actionButton, action.data.mark ? styles.successButton : styles.warningButton]}
+                        onPress={() => executeAction(action)}
+                      >
+                        <Text style={styles.actionButtonText}>
+                          {action.data.mark ? '✓' : '○'} Mark {action.data.supplementName} as {action.data.mark ? 'Taken' : 'Not Taken'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  case 'update_dosage':
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        style={[styles.actionButton, styles.infoButton]}
+                        onPress={() => executeAction(action)}
+                      >
+                        <Text style={styles.actionButtonText}>
+                          💊 Update {action.data.supplementName} to {action.data.newDosage}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  case 'delete_schedule':
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        style={[styles.actionButton, styles.deleteButton]}
+                        onPress={() => executeAction(action)}
+                      >
+                        <Text style={styles.actionButtonText}>
+                          🗑️ Delete {action.data.supplementName} schedule
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                }
+              };
+              return getActionButton();
+            })}
           </View>
         )}
       </View>
@@ -657,6 +834,18 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     color: theme.buttonSecondary,
     fontSize: 13,
     fontWeight: '600',
+  },
+  successButton: {
+    backgroundColor: theme.success,
+  },
+  warningButton: {
+    backgroundColor: theme.warning,
+  },
+  infoButton: {
+    backgroundColor: theme.info,
+  },
+  deleteButton: {
+    backgroundColor: theme.error,
   },
   loadingContainer: {
     flexDirection: 'row',
