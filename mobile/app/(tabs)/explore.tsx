@@ -1,13 +1,14 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { FlatList, StyleSheet, Text, View, Image, TouchableOpacity, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform, Dimensions } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { getAllStack, removeFromStack, getAllHistory, addToStack, isInStack, deleteFromHistory, type Supplement } from '../../lib/storage';
 import { addScheduledSupplement } from '../../lib/scheduleStorage';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Colors } from '@/constants/theme';
 import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { getTodayDateString, localDateTimeToUTC } from '../../lib/timezoneUtils';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const MEASUREMENT_UNITS = [
   { label: 'capsule', value: 'capsule' },
@@ -28,7 +29,7 @@ const MEASUREMENT_UNITS = [
 
 export default function StackScreen() {
   const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme ?? 'light'];
+  const isDark = colorScheme === 'dark';
 
   const router = useRouter();
   const [supplements, setSupplements] = useState<Supplement[]>([]);
@@ -43,18 +44,49 @@ export default function StackScreen() {
   const [dosageUnit, setDosageUnit] = useState('capsule');
   const [showUnitPicker, setShowUnitPicker] = useState(false);
   const [recurrenceType, setRecurrenceType] = useState<'once' | 'daily' | 'weekly'>('daily');
-  const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]); // Default weekdays
-
-  // Debug: Log state changes
-  React.useEffect(() => {
-    console.log('***** showUnitPicker changed to:', showUnitPicker);
-  }, [showUnitPicker]);
+  const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]);
 
   // History modal state
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyItems, setHistoryItems] = useState<Supplement[]>([]);
   const [inStackSet, setInStackSet] = useState<Set<string>>(new Set());
   const [expandedHistoryId, setExpandedHistoryId] = useState<number | null>(null);
+
+  // Warm, botanical palette inspired by the light-mode reference
+  const colors = {
+    // Warm cream backgrounds
+    background: isDark ? '#1A1915' : '#F6F2E8',
+    card: isDark ? '#252320' : '#FBF8F0',
+    cardAlt: isDark ? '#2D2A26' : '#F1EBDD',
+
+    // Text
+    text: isDark ? '#F0EDE6' : '#1F241F',
+    textSecondary: isDark ? '#A8A49C' : '#6F776B',
+    textMuted: isDark ? '#706C65' : '#91988E',
+
+    // Deep green accent
+    olive: isDark ? '#7D8B6A' : '#0F4B2E',
+    oliveDark: isDark ? '#6B7A5A' : '#0B3A23',
+    oliveLight: isDark ? 'rgba(125, 139, 106, 0.25)' : 'rgba(15, 75, 46, 0.08)',
+
+    // Warm brown accent
+    brown: isDark ? '#A68B6A' : '#9B8A67',
+    brownLight: isDark ? 'rgba(166, 139, 106, 0.2)' : 'rgba(155, 138, 103, 0.12)',
+
+    // Functional
+    danger: '#B5635A',
+    dangerLight: isDark ? 'rgba(181, 99, 90, 0.2)' : 'rgba(181, 99, 90, 0.1)',
+
+    // Borders
+    border: isDark ? '#3A3632' : '#E4DDCF',
+    borderLight: isDark ? '#2F2C28' : '#F1EBDD',
+
+    // Rating - earthy tones
+    excellent: isDark ? '#6B8E5A' : '#0F4B2E',
+    good: '#B5A048',
+    fair: '#C4883A',
+    poor: '#B5635A',
+  };
 
   const loadSupplements = async () => {
     const data = await getAllStack();
@@ -75,8 +107,8 @@ export default function StackScreen() {
 
   const handleDelete = async (id: number) => {
     Alert.alert(
-      'Remove from Stack',
-      'Are you sure you want to remove this supplement from your stack?',
+      'Remove Supplement',
+      'Remove this supplement from your stack?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -94,7 +126,6 @@ export default function StackScreen() {
   const openScheduleModal = (supplement: Supplement) => {
     setSelectedSupplement(supplement);
     setShowScheduleModal(true);
-    // Reset to defaults
     setSelectedTime('08:00');
     setDosageAmount('');
     setDosageUnit('capsule');
@@ -105,13 +136,10 @@ export default function StackScreen() {
   const handleScheduleConfirm = async () => {
     if (!selectedSupplement) return;
 
-    // Get today's date in local timezone and convert to UTC for storage
     const today = getTodayDateString();
     const utcDateTime = localDateTimeToUTC(today, selectedTime);
-
     const recurrenceDays = recurrenceType === 'weekly' ? selectedDays : null;
 
-    // Format dosage if amount is provided
     const dosageValue = dosageAmount.trim()
       ? `${dosageAmount.trim()} ${dosageUnit}${parseFloat(dosageAmount) !== 1 && !['ml', 'mg', 'g', 'mcg', 'IU'].includes(dosageUnit) ? 's' : ''}`
       : null;
@@ -138,31 +166,24 @@ export default function StackScreen() {
     }
   };
 
-  const getColorForScore = (score: number) => {
-    if (score >= 80) return theme.scoreExcellent;
-    if (score >= 60) return theme.scoreGood;
-    if (score >= 40) return theme.scoreFair;
-    return theme.scorePoor;
+  const getRatingColor = (rating: number) => {
+    if (rating >= 80) return colors.excellent;
+    if (rating >= 60) return colors.good;
+    if (rating >= 40) return colors.fair;
+    return colors.poor;
   };
 
-  const renderScoreBar = (label: string, score: number | undefined) => {
-    if (score == null) return null;
-    return (
-      <View style={styles.scoreRow}>
-        <Text style={styles.scoreLabel}>{label}</Text>
-        <View style={styles.scoreBarContainer}>
-          <View style={[styles.scoreBarFill, { width: `${score}%`, backgroundColor: getColorForScore(score) }]} />
-        </View>
-        <Text style={styles.scoreValue}>{score}</Text>
-      </View>
-    );
+  const getRatingLabel = (rating: number) => {
+    if (rating >= 80) return 'Excellent';
+    if (rating >= 60) return 'Good';
+    if (rating >= 40) return 'Fair';
+    return 'Poor';
   };
 
   const loadHistory = async () => {
     const history = await getAllHistory();
     setHistoryItems(history);
 
-    // Check which items are in stack
     const stackStatus = new Set<string>();
     for (const item of history) {
       const inStack = await isInStack(item.barcode);
@@ -174,147 +195,142 @@ export default function StackScreen() {
   const handleAddToStackFromHistory = async (supplement: Supplement) => {
     await addToStack(supplement);
     await loadSupplements();
-    await loadHistory(); // Refresh history to update button states
-    Alert.alert('Added to Stack', `${supplement.name} has been added to your stack`);
+    await loadHistory();
+    Alert.alert('Added', `${supplement.name} added to your stack`);
   };
 
   const handleDeleteFromHistory = async (id: number, name: string) => {
     Alert.alert(
-      'Delete from History',
-      `Remove "${name}" from your scan history?`,
+      'Delete',
+      `Remove "${name}" from history?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            try {
-              await deleteFromHistory(id);
-              await loadHistory();
-              Alert.alert('Deleted', 'Item removed from history');
-            } catch (error: any) {
-              Alert.alert('Error', `Failed to delete: ${error.message}`);
-            }
+            await deleteFromHistory(id);
+            await loadHistory();
           }
         }
       ]
     );
   };
 
+  const renderScoreBar = (label: string, score: number | undefined) => {
+    if (score == null) return null;
+    return (
+      <View style={styles.scoreRow}>
+        <Text style={[styles.scoreLabel, { color: colors.textSecondary }]}>{label}</Text>
+        <View style={[styles.scoreBarBg, { backgroundColor: colors.borderLight }]}>
+          <View style={[styles.scoreBarFill, { width: `${score}%`, backgroundColor: getRatingColor(score) }]} />
+        </View>
+        <Text style={[styles.scoreValue, { color: colors.text }]}>{score}</Text>
+      </View>
+    );
+  };
+
   const renderItem = ({ item }: { item: Supplement }) => {
     const isExpanded = expandedId === item.id;
+    const ratingColor = item.rating != null ? getRatingColor(item.rating) : colors.olive;
 
     return (
       <TouchableOpacity
-        style={styles.card}
+        style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
         onPress={() => setExpandedId(isExpanded ? null : item.id)}
         activeOpacity={0.7}
       >
-        {/* Rating Badge at top right */}
-        {item.rating != null && (
-          <View style={[styles.ratingBadge, getRatingColor(item.rating)]}>
-            <Text style={styles.ratingText}>{item.rating}</Text>
+        {/* Compact row layout */}
+        <View style={styles.cardTop}>
+          <View style={[styles.imageContainer, { backgroundColor: colors.cardAlt, borderColor: colors.borderLight }]}>
+            {item.image ? (
+              <Image source={{ uri: item.image }} style={styles.productImage} resizeMode="contain" />
+            ) : (
+              <Text style={styles.placeholderEmoji}>💊</Text>
+            )}
           </View>
-        )}
 
-        <View style={styles.cardContent}>
-          {item.image && (
-            <Image
-              source={{ uri: item.image }}
-              style={styles.thumbnail}
-              resizeMode="contain"
-            />
-          )}
-          <View style={styles.info}>
-            <Text style={styles.name} numberOfLines={isExpanded ? undefined : 2}>
+          <View style={styles.cardMeta}>
+            <Text style={[styles.productName, { color: colors.text }]} numberOfLines={2}>
               {item.name}
             </Text>
-            <Text style={styles.brand}>{item.brand}</Text>
-            <Text style={styles.date}>
-              {new Date(item.created_at).toLocaleDateString()}
-            </Text>
+            {item.brand && (
+              <Text style={[styles.brandName, { color: colors.textMuted }]}>{item.brand}</Text>
+            )}
+            {item.rating != null && (
+              <View style={[styles.ratingPill, { backgroundColor: ratingColor + '18' }]}>
+                <Text style={[styles.ratingPillText, { color: ratingColor }]}>
+                  {getRatingLabel(item.rating)}
+                </Text>
+              </View>
+            )}
           </View>
+
+          {item.rating != null && (
+            <View style={[styles.ratingBadge, { borderColor: ratingColor, backgroundColor: ratingColor + '12' }]}>
+              <Text style={[styles.ratingBadgeText, { color: ratingColor }]}>{item.rating}</Text>
+            </View>
+          )}
         </View>
 
-        {/* Expanded Details */}
+        {/* Expanded content */}
         {isExpanded && (
-          <>
-            {/* Detailed Scores */}
+          <View style={[styles.expandedContent, { borderTopColor: colors.borderLight }]}>
             {item.scores && (
-              <View style={styles.scoresContainer}>
-                <Text style={styles.scoresTitle}>Detailed Scores</Text>
+              <View style={styles.scoresSection}>
                 {renderScoreBar('Effectiveness', item.scores.effectiveness)}
-                {renderScoreBar('Quality & Purity', item.scores.quality)}
+                {renderScoreBar('Quality', item.scores.quality)}
                 {renderScoreBar('Safety', item.scores.safety)}
                 {renderScoreBar('Value', item.scores.value)}
-                {renderScoreBar('Satisfaction', item.scores.satisfaction)}
-                {renderScoreBar('Taste', item.scores.taste)}
               </View>
             )}
 
             {item.analysis && (
-              <View style={styles.analysisContainer}>
-                <Text style={styles.analysisTitle}>Analysis</Text>
-                <Text style={styles.analysis}>{item.analysis}</Text>
-              </View>
+              <Text style={[styles.analysisText, { color: colors.textSecondary }]}>
+                {item.analysis}
+              </Text>
             )}
 
             <View style={styles.actionButtons}>
               <TouchableOpacity
-                style={styles.scheduleButton}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  openScheduleModal(item);
-                }}
+                style={[styles.actionButton, { backgroundColor: colors.oliveLight, borderColor: colors.olive }]}
+                onPress={(e) => { e.stopPropagation(); openScheduleModal(item); }}
               >
-                <Text style={styles.scheduleText}>📅 Schedule</Text>
+                <Text style={[styles.actionButtonText, { color: colors.olive }]}>Schedule</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  handleDelete(item.id);
-                }}
+                style={[styles.actionButton, { backgroundColor: colors.dangerLight, borderColor: colors.danger }]}
+                onPress={(e) => { e.stopPropagation(); handleDelete(item.id); }}
               >
-                <Text style={styles.deleteText}>🗑️ Delete</Text>
+                <Text style={[styles.actionButtonText, { color: colors.danger }]}>Remove</Text>
               </TouchableOpacity>
             </View>
-          </>
+          </View>
         )}
       </TouchableOpacity>
     );
   };
 
   const renderHistoryItem = ({ item }: { item: Supplement }) => {
-    const isInStack = inStackSet.has(item.barcode);
+    const isInStackItem = inStackSet.has(item.barcode);
     const isExpanded = expandedHistoryId === item.id;
 
     const renderLeftActions = () => (
       <TouchableOpacity
-        style={[
-          styles.addToStackAction,
-          isInStack && styles.addToStackActionDisabled
-        ]}
-        onPress={() => {
-          if (!isInStack) handleAddToStackFromHistory(item);
-        }}
-        disabled={isInStack}
+        style={[styles.swipeAction, { backgroundColor: isInStackItem ? colors.textMuted : colors.olive }]}
+        onPress={() => !isInStackItem && handleAddToStackFromHistory(item)}
+        disabled={isInStackItem}
       >
-        <Text style={[
-          styles.addToStackActionText,
-          isInStack && styles.addToStackActionTextDisabled
-        ]}>
-          {isInStack ? 'In Stack' : 'Add to Stack'}
-        </Text>
+        <Text style={styles.swipeActionText}>{isInStackItem ? '✓' : '+'}</Text>
       </TouchableOpacity>
     );
 
     const renderRightActions = () => (
       <TouchableOpacity
-        style={styles.deleteAction}
+        style={[styles.swipeAction, { backgroundColor: colors.danger }]}
         onPress={() => handleDeleteFromHistory(item.id, item.name)}
       >
-        <Text style={styles.deleteActionText}>Delete</Text>
+        <Text style={styles.swipeActionText}>✕</Text>
       </TouchableOpacity>
     );
 
@@ -324,93 +340,41 @@ export default function StackScreen() {
         renderRightActions={renderRightActions}
         overshootLeft={false}
         overshootRight={false}
-        friction={2}
-        leftThreshold={40}
-        rightThreshold={40}
       >
         <TouchableOpacity
-          style={styles.historyCard}
+          style={[styles.historyCard, { backgroundColor: colors.card, borderColor: colors.border }]}
           onPress={() => setExpandedHistoryId(isExpanded ? null : item.id)}
           activeOpacity={0.7}
         >
-          {item.rating != null && (
-            <View style={[styles.ratingBadge, getRatingColor(item.rating)]}>
-              <Text style={styles.ratingText}>{item.rating}</Text>
+          <View style={styles.historyContent}>
+            <View style={[styles.historyImageBox, { backgroundColor: colors.cardAlt }]}>
+              {item.image ? (
+                <Image source={{ uri: item.image }} style={styles.historyImage} resizeMode="contain" />
+              ) : (
+                <Text style={styles.historyPlaceholder}>💊</Text>
+              )}
             </View>
-          )}
-
-          <View style={styles.historyCardContent}>
-            {item.image && (
-              <Image
-                source={{ uri: item.image }}
-                style={styles.historyThumbnail}
-                resizeMode="contain"
-              />
-            )}
             <View style={styles.historyInfo}>
-              <Text style={styles.historyName} numberOfLines={isExpanded ? undefined : 2}>
+              <Text style={[styles.historyName, { color: colors.text }]} numberOfLines={2}>
                 {item.name}
               </Text>
-              <Text style={styles.historyBrand}>{item.brand}</Text>
-              <Text style={styles.historyDate}>
-                {new Date(item.created_at).toLocaleDateString()}
-              </Text>
+              <Text style={[styles.historyBrand, { color: colors.textMuted }]}>{item.brand}</Text>
             </View>
+            {item.rating != null && (
+              <View style={[styles.historyRating, { backgroundColor: getRatingColor(item.rating) }]}>
+                <Text style={styles.historyRatingText}>{item.rating}</Text>
+              </View>
+            )}
           </View>
 
-          {isExpanded && (
-            <>
-              {item.scores && (
-                <View style={styles.scoresContainer}>
-                  <Text style={styles.scoresTitle}>Scores</Text>
-                  {renderScoreBar('Effectiveness', item.scores.effectiveness)}
-                  {renderScoreBar('Safety', item.scores.safety)}
-                  {renderScoreBar('Quality', item.scores.quality)}
-                  {renderScoreBar('Value', item.scores.value)}
-                  {renderScoreBar('Satisfaction', item.scores.satisfaction)}
-                  {renderScoreBar('Taste', item.scores.taste)}
-                </View>
-              )}
-
-              {item.analysis && (
-                <View style={styles.analysisContainer}>
-                  <Text style={styles.analysisTitle}>Analysis</Text>
-                  <Text style={styles.analysis}>{item.analysis}</Text>
-                </View>
-              )}
-            </>
+          {isExpanded && item.analysis && (
+            <Text style={[styles.historyAnalysis, { color: colors.textSecondary }]} numberOfLines={3}>
+              {item.analysis}
+            </Text>
           )}
-
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={[
-                styles.addToStackButton,
-                isInStack && styles.addToStackButtonDisabled
-              ]}
-              onPress={(e) => {
-                e.stopPropagation();
-                if (!isInStack) handleAddToStackFromHistory(item);
-              }}
-              disabled={isInStack}
-            >
-              <Text style={[
-                styles.addToStackButtonText,
-                isInStack && styles.addToStackButtonTextDisabled
-              ]}>
-                {isInStack ? '✓ In Stack' : '+ Add to Stack'}
-              </Text>
-            </TouchableOpacity>
-          </View>
         </TouchableOpacity>
       </Swipeable>
     );
-  };
-
-  const getRatingColor = (rating: number) => {
-    if (rating >= 80) return { backgroundColor: theme.scoreExcellent };
-    if (rating >= 60) return { backgroundColor: theme.scoreGood };
-    if (rating >= 40) return { backgroundColor: theme.scoreFair };
-    return { backgroundColor: theme.scorePoor };
   };
 
   const timeOptions = Array.from({ length: 24 }, (_, i) => {
@@ -418,393 +382,396 @@ export default function StackScreen() {
     return [`${hour}:00`, `${hour}:30`];
   }).flat();
 
-  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-  const styles = createStyles(theme);
+  const daysOfWeek = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <View style={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>My Stack</Text>
-          <Text style={styles.subtitle}>{supplements.length} supplement{supplements.length !== 1 ? 's' : ''}</Text>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        {/* Header */}
+        <View style={[styles.header, { backgroundColor: colors.background }]}>
+          <View style={styles.headerLeft}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>My Stack</Text>
+            <Text style={[styles.headerCount, { color: colors.textMuted }]}>
+              {supplements.length} {supplements.length === 1 ? 'item' : 'items'}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.historyButton, { backgroundColor: colors.brown, shadowColor: colors.brown }]}
+            onPress={async () => { await loadHistory(); setShowHistoryModal(true); }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.historyButtonText}>History</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={styles.historyButton}
-          onPress={async () => {
-            await loadHistory();
-            setShowHistoryModal(true);
-          }}
+
+        {/* Main Content */}
+        {supplements.length === 0 ? (
+          <View style={styles.emptyState}>
+            <View style={[styles.emptyIconContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={styles.emptyIcon}>🌿</Text>
+            </View>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>Start Your Journey</Text>
+            <Text style={[styles.emptyDescription, { color: colors.textSecondary }]}>
+              Scan a supplement to begin{'\n'}tracking your wellness routine
+            </Text>
+            <TouchableOpacity
+              style={[styles.scanButton, { backgroundColor: colors.olive }]}
+              onPress={() => router.push('/')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.scanButtonText}>Scan Now</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <FlatList
+            data={supplements}
+            keyExtractor={(item) => String(item.id)}
+            renderItem={renderItem}
+            numColumns={1}
+            columnWrapperStyle={undefined}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.olive} />
+            }
+          />
+        )}
+
+        {/* Schedule Modal */}
+        <Modal
+          visible={showScheduleModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => { setShowScheduleModal(false); setShowUnitPicker(false); }}
         >
-          <Text style={styles.historyButtonText}>📜 History</Text>
-        </TouchableOpacity>
-      </View>
-      {supplements.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>Your stack is empty</Text>
-          <Text style={styles.emptySubtext}>Scan a supplement to start building your stack!</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={supplements}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderItem}
-          contentContainerStyle={styles.list}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        />
-      )}
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+            <View style={styles.modalOverlay}>
+              <View style={[styles.modalContainer, { backgroundColor: colors.card }]}>
+                <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  <Text style={[styles.modalTitle, { color: colors.text }]}>Schedule</Text>
+                  <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
+                    {selectedSupplement?.name}
+                  </Text>
 
-      {/* Schedule Modal */}
-      <Modal
-        visible={showScheduleModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => {
-          setShowScheduleModal(false);
-          setShowUnitPicker(false);
-        }}
-      >
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={{ flex: 1 }}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContainer}>
-              <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.modalTitle}>Schedule {selectedSupplement?.name}</Text>
-
-              {/* Time Selection */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>⏰ Time</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.timeScroll}>
-                  {timeOptions.map((time) => (
-                    <TouchableOpacity
-                      key={time}
-                      style={[
-                        styles.timeChip,
-                        selectedTime === time && styles.timeChipSelected
-                      ]}
-                      onPress={() => setSelectedTime(time)}
-                    >
-                      <Text style={[
-                        styles.timeChipText,
-                        selectedTime === time && styles.timeChipTextSelected
-                      ]}>
-                        {time}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-
-              {/* Dosage Input */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>💊 Dosage (Optional)</Text>
-                <View style={styles.dosageRow}>
-                  <TextInput
-                    style={styles.dosageAmountInput}
-                    placeholder="Amount"
-                    placeholderTextColor={theme.inputPlaceholder}
-                    value={dosageAmount}
-                    onChangeText={setDosageAmount}
-                    keyboardType="numeric"
-                  />
-                  <TouchableOpacity
-                    style={styles.unitDropdown}
-                    onPress={() => setShowUnitPicker(true)}
-                  >
-                    <Text style={styles.unitDropdownText}>{dosageUnit}</Text>
-                    <Text style={styles.unitDropdownIcon}>▼</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              {/* Frequency Selection */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>🔄 Frequency</Text>
-                <View style={styles.frequencyButtons}>
-                  <TouchableOpacity
-                    style={[
-                      styles.frequencyButton,
-                      recurrenceType === 'once' && styles.frequencyButtonSelected
-                    ]}
-                    onPress={() => setRecurrenceType('once')}
-                  >
-                    <Text style={[
-                      styles.frequencyButtonText,
-                      recurrenceType === 'once' && styles.frequencyButtonTextSelected
-                    ]}>
-                      Once
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.frequencyButton,
-                      recurrenceType === 'daily' && styles.frequencyButtonSelected
-                    ]}
-                    onPress={() => setRecurrenceType('daily')}
-                  >
-                    <Text style={[
-                      styles.frequencyButtonText,
-                      recurrenceType === 'daily' && styles.frequencyButtonTextSelected
-                    ]}>
-                      Every Day
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.frequencyButton,
-                      recurrenceType === 'weekly' && styles.frequencyButtonSelected
-                    ]}
-                    onPress={() => setRecurrenceType('weekly')}
-                  >
-                    <Text style={[
-                      styles.frequencyButtonText,
-                      recurrenceType === 'weekly' && styles.frequencyButtonTextSelected
-                    ]}>
-                      Specific Days
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Day Selection (only for weekly) */}
-              {recurrenceType === 'weekly' && (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>📅 Select Days</Text>
-                  <View style={styles.daysContainer}>
-                    {daysOfWeek.map((day, index) => (
+                  {/* Time Selection */}
+                  <Text style={[styles.modalSectionLabel, { color: colors.textMuted }]}>Time</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.timeScroll}>
+                    {timeOptions.map((time) => (
                       <TouchableOpacity
-                        key={day}
+                        key={time}
                         style={[
-                          styles.dayChip,
-                          selectedDays.includes(index) && styles.dayChipSelected
+                          styles.timeOption,
+                          { backgroundColor: colors.cardAlt, borderColor: colors.border },
+                          selectedTime === time && { backgroundColor: colors.olive, borderColor: colors.olive }
                         ]}
-                        onPress={() => toggleDay(index)}
+                        onPress={() => setSelectedTime(time)}
                       >
                         <Text style={[
-                          styles.dayChipText,
-                          selectedDays.includes(index) && styles.dayChipTextSelected
+                          styles.timeOptionText,
+                          { color: colors.text },
+                          selectedTime === time && { color: '#FFFFFF' }
                         ]}>
-                          {day}
+                          {time}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  {/* Dosage */}
+                  <Text style={[styles.modalSectionLabel, { color: colors.textMuted }]}>Dosage</Text>
+                  <View style={styles.dosageContainer}>
+                    <TextInput
+                      style={[styles.dosageInput, { backgroundColor: colors.cardAlt, color: colors.text, borderColor: colors.border }]}
+                      placeholder="Amount"
+                      placeholderTextColor={colors.textMuted}
+                      value={dosageAmount}
+                      onChangeText={setDosageAmount}
+                      keyboardType="numeric"
+                    />
+                    <TouchableOpacity
+                      style={[styles.unitSelector, { backgroundColor: colors.cardAlt, borderColor: colors.border }]}
+                      onPress={() => setShowUnitPicker(true)}
+                    >
+                      <Text style={[styles.unitSelectorText, { color: colors.text }]}>{dosageUnit}</Text>
+                      <Text style={[styles.unitSelectorArrow, { color: colors.textMuted }]}>›</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Frequency */}
+                  <Text style={[styles.modalSectionLabel, { color: colors.textMuted }]}>Frequency</Text>
+                  <View style={styles.frequencyContainer}>
+                    {(['once', 'daily', 'weekly'] as const).map((type) => (
+                      <TouchableOpacity
+                        key={type}
+                        style={[
+                          styles.frequencyOption,
+                          { backgroundColor: colors.cardAlt, borderColor: colors.border },
+                          recurrenceType === type && { backgroundColor: colors.olive, borderColor: colors.olive }
+                        ]}
+                        onPress={() => setRecurrenceType(type)}
+                      >
+                        <Text style={[
+                          styles.frequencyOptionText,
+                          { color: colors.text },
+                          recurrenceType === type && { color: '#FFFFFF' }
+                        ]}>
+                          {type === 'once' ? 'Once' : type === 'daily' ? 'Daily' : 'Weekly'}
                         </Text>
                       </TouchableOpacity>
                     ))}
                   </View>
-                  <TouchableOpacity
-                    style={styles.weekdaysButton}
-                    onPress={() => setSelectedDays([1, 2, 3, 4, 5])}
-                  >
-                    <Text style={styles.weekdaysButtonText}>Select All Weekdays</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
 
-              {/* Action Buttons */}
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={styles.cancelButton}
-                  onPress={() => {
-                    setShowScheduleModal(false);
-                    setShowUnitPicker(false);
-                  }}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.confirmButton,
-                    (recurrenceType === 'weekly' && selectedDays.length === 0) && styles.confirmButtonDisabled
-                  ]}
-                  onPress={handleScheduleConfirm}
-                  disabled={recurrenceType === 'weekly' && selectedDays.length === 0}
-                >
-                  <Text style={styles.confirmButtonText}>Schedule</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-
-            {/* Unit Picker - INSIDE Schedule Modal */}
-            {showUnitPicker && (
-              <View style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                justifyContent: 'flex-end',
-                zIndex: 9999
-              }}>
-                <TouchableOpacity
-                  style={{ flex: 1, width: '100%' }}
-                  activeOpacity={1}
-                  onPress={() => setShowUnitPicker(false)}
-                >
-                  <View style={{ flex: 1 }} />
-                </TouchableOpacity>
-                <TouchableWithoutFeedback>
-                  <View style={styles.unitModalContent}>
-                    <View style={styles.unitModalHeader}>
-                      <Text style={styles.unitModalTitle}>Select Unit</Text>
-                      <TouchableOpacity onPress={() => setShowUnitPicker(false)}>
-                        <Text style={styles.unitModalClose}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <ScrollView style={styles.unitList}>
-                      {MEASUREMENT_UNITS.map((unit) => (
+                  {/* Day Selection */}
+                  {recurrenceType === 'weekly' && (
+                    <View style={styles.daysContainer}>
+                      {daysOfWeek.map((day, index) => (
                         <TouchableOpacity
-                          key={unit.value}
+                          key={index}
                           style={[
-                            styles.unitOption,
-                            dosageUnit === unit.value && styles.unitOptionSelected
+                            styles.dayOption,
+                            { backgroundColor: colors.cardAlt, borderColor: colors.border },
+                            selectedDays.includes(index) && { backgroundColor: colors.olive, borderColor: colors.olive }
                           ]}
-                          onPress={() => {
-                            setDosageUnit(unit.value);
-                            setShowUnitPicker(false);
-                          }}
+                          onPress={() => toggleDay(index)}
                         >
                           <Text style={[
-                            styles.unitOptionText,
-                            dosageUnit === unit.value && styles.unitOptionTextSelected
+                            styles.dayOptionText,
+                            { color: colors.text },
+                            selectedDays.includes(index) && { color: '#FFFFFF' }
                           ]}>
-                            {unit.label}
+                            {day}
                           </Text>
-                          {dosageUnit === unit.value && (
-                            <Text style={styles.unitCheckmark}>✓</Text>
-                          )}
                         </TouchableOpacity>
                       ))}
-                    </ScrollView>
-                  </View>
-                </TouchableWithoutFeedback>
-              </View>
-            )}
-          </View>
-        </View>
-        </KeyboardAvoidingView>
-      </Modal>
+                    </View>
+                  )}
 
-      {/* History Modal */}
-      <Modal
-        visible={showHistoryModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowHistoryModal(false)}
-      >
-        <View style={styles.historyModalOverlay}>
-          <View style={styles.historyModalContainer}>
-            <View style={styles.historyModalHeader}>
-              <Text style={styles.historyModalTitle}>History</Text>
+                  {/* Action Buttons */}
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.modalCancelButton, { backgroundColor: colors.cardAlt, borderColor: colors.border }]}
+                      onPress={() => { setShowScheduleModal(false); setShowUnitPicker(false); }}
+                    >
+                      <Text style={[styles.modalCancelText, { color: colors.text }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.modalConfirmButton, { backgroundColor: colors.olive }]}
+                      onPress={handleScheduleConfirm}
+                    >
+                      <Text style={styles.modalConfirmText}>Confirm</Text>
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+
+                {/* Unit Picker */}
+                {showUnitPicker && (
+                  <View style={styles.unitPickerOverlay}>
+                    <TouchableOpacity style={styles.unitPickerBackdrop} onPress={() => setShowUnitPicker(false)} />
+                    <View style={[styles.unitPickerContainer, { backgroundColor: colors.card }]}>
+                      <View style={[styles.unitPickerHeader, { borderBottomColor: colors.border }]}>
+                        <Text style={[styles.unitPickerTitle, { color: colors.text }]}>Unit</Text>
+                        <TouchableOpacity onPress={() => setShowUnitPicker(false)}>
+                          <Text style={[styles.unitPickerDone, { color: colors.olive }]}>Done</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <ScrollView>
+                        {MEASUREMENT_UNITS.map((unit) => (
+                          <TouchableOpacity
+                            key={unit.value}
+                            style={[styles.unitPickerOption, { borderBottomColor: colors.borderLight }]}
+                            onPress={() => { setDosageUnit(unit.value); setShowUnitPicker(false); }}
+                          >
+                            <Text style={[styles.unitPickerOptionText, { color: colors.text }]}>{unit.label}</Text>
+                            {dosageUnit === unit.value && (
+                              <Text style={{ color: colors.olive, fontSize: 17 }}>✓</Text>
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  </View>
+                )}
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
+        {/* History Modal */}
+        <Modal
+          visible={showHistoryModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setShowHistoryModal(false)}
+        >
+          <View style={[styles.historyModalContainer, { backgroundColor: colors.background }]}>
+            <View style={[styles.historyModalHeader, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+              <Text style={[styles.historyModalTitle, { color: colors.text }]}>Scan History</Text>
               <TouchableOpacity
                 onPress={() => setShowHistoryModal(false)}
-                style={styles.historyCloseButton}
+                style={[styles.historyModalCloseBtn, { backgroundColor: colors.olive }]}
               >
-                <Text style={styles.historyCloseButtonText}>✕</Text>
+                <Text style={styles.historyModalCloseText}>Done</Text>
               </TouchableOpacity>
             </View>
             {historyItems.length === 0 ? (
-              <View style={styles.historyEmptyContainer}>
-                <Text style={styles.historyEmptyText}>No history yet</Text>
-                <Text style={styles.historyEmptySubtext}>Scanned supplements will appear here</Text>
+              <View style={styles.emptyState}>
+                <View style={[styles.emptyIconContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Text style={styles.emptyIcon}>📋</Text>
+                </View>
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>No History</Text>
+                <Text style={[styles.emptyDescription, { color: colors.textSecondary }]}>
+                  Scanned supplements will appear here
+                </Text>
               </View>
             ) : (
               <FlatList
                 data={historyItems}
                 keyExtractor={(item) => String(item.id)}
                 renderItem={renderHistoryItem}
-                contentContainerStyle={styles.historyList}
+                contentContainerStyle={styles.historyListContent}
+                showsVerticalScrollIndicator={false}
               />
             )}
           </View>
-        </View>
-      </Modal>
+        </Modal>
       </View>
     </GestureHandlerRootView>
   );
 }
 
-const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
+const CARD_WIDTH = SCREEN_WIDTH - 32;
+
+const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.background,
   },
+
+  // Header
   header: {
-    paddingTop: 60,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    backgroundColor: theme.cardBackground,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.borderLight,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-end',
+    paddingTop: 60,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
-  title: {
-    fontSize: 28,
+  headerLeft: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 22,
     fontWeight: '700',
-    color: theme.text,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
   },
-  subtitle: {
-    fontSize: 14,
-    color: theme.textMuted,
-    marginTop: 4,
+  headerCount: {
+    fontSize: 12,
+    marginTop: 6,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   historyButton: {
-    backgroundColor: theme.buttonPrimary,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   historyButtonText: {
-    color: '#fff',
-    fontSize: 14,
+    color: '#FFFFFF',
+    fontSize: 15,
     fontWeight: '600',
   },
-  list: {
-    padding: 16,
+
+  // List
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 32,
   },
+  row: {
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+
+  // Card - Grid layout
   card: {
-    backgroundColor: theme.cardBackground,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
+    width: CARD_WIDTH,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: theme.cardBorder,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-    position: 'relative',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
   },
-  cardContent: {
+  cardTop: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
-  thumbnail: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-    backgroundColor: theme.inputBackground,
-  },
-  info: {
-    flex: 1,
-    marginLeft: 12,
+  imageContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+    borderWidth: 1,
     justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
   },
-  scoresContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: theme.borderLight,
+  productImage: {
+    width: '100%',
+    height: '100%',
   },
-  scoresTitle: {
-    fontSize: 14,
+  placeholderEmoji: {
+    fontSize: 40,
+  },
+  cardMeta: {
+    flex: 1,
+  },
+  productName: {
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  brandName: {
+    fontSize: 11,
+    marginBottom: 6,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  ratingPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  ratingPillText: {
+    fontSize: 10,
     fontWeight: '600',
-    marginBottom: 8,
-    color: theme.text,
+  },
+  ratingBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  ratingBadgeText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  // Expanded Content
+  expandedContent: {
+    padding: 12,
+    borderTopWidth: 1,
+  },
+  scoresSection: {
+    marginBottom: 12,
   },
   scoreRow: {
     flexDirection: 'row',
@@ -812,619 +779,368 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     marginBottom: 8,
   },
   scoreLabel: {
-    fontSize: 12,
-    color: theme.textMuted,
-    width: 100,
-    fontWeight: '500',
+    fontSize: 11,
+    width: 75,
   },
-  scoreBarContainer: {
+  scoreBarBg: {
     flex: 1,
-    height: 8,
-    backgroundColor: theme.borderLight,
-    borderRadius: 4,
-    overflow: 'hidden',
+    height: 4,
+    borderRadius: 2,
     marginHorizontal: 8,
   },
   scoreBarFill: {
     height: '100%',
-    borderRadius: 4,
+    borderRadius: 2,
   },
   scoreValue: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.text,
-    width: 30,
+    fontSize: 11,
+    fontWeight: '600',
+    width: 24,
     textAlign: 'right',
   },
-  analysisContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: theme.borderLight,
-  },
-  analysisTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 6,
-    color: theme.text,
-  },
-  name: {
-    fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 2,
-    paddingRight: 50,
-    color: theme.text,
-  },
-  ratingBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    minWidth: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ratingText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  brand: {
-    fontSize: 13,
-    color: theme.textMuted,
-    marginBottom: 2,
-  },
-  date: {
-    fontSize: 11,
-    color: theme.textLight,
-  },
-  analysis: {
-    fontSize: 13,
-    color: theme.textSecondary,
+  analysisText: {
+    fontSize: 12,
     lineHeight: 18,
+    marginBottom: 12,
   },
   actionButtons: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 8,
-    marginTop: 12,
   },
-  scheduleButton: {
-    backgroundColor: theme.buttonPrimary,
+  actionButton: {
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
   },
-  scheduleText: {
-    color: '#fff',
-    fontSize: 14,
+  actionButtonText: {
+    fontSize: 13,
     fontWeight: '600',
-    textAlign: 'center',
   },
-  deleteButton: {
-    backgroundColor: theme.buttonDanger,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    flex: 1,
-  },
-  deleteText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  emptyContainer: {
+
+  // Empty State
+  emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
   },
-  emptyText: {
-    fontSize: 18,
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  emptyIcon: {
+    fontSize: 44,
+  },
+  emptyTitle: {
+    fontSize: 22,
     fontWeight: '600',
-    color: theme.textSecondary,
-    marginBottom: 8,
-    textAlign: 'center',
+    marginBottom: 10,
   },
-  emptySubtext: {
-    fontSize: 14,
-    color: theme.textMuted,
+  emptyDescription: {
+    fontSize: 15,
     textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 28,
   },
-  // Modal styles
+  scanButton: {
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 28,
+  },
+  scanButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  // Schedule Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: theme.modalOverlay,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'flex-end',
   },
   modalContainer: {
-    backgroundColor: theme.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 24,
-    maxHeight: '90%',
+    paddingHorizontal: 20,
+    paddingBottom: 34,
+    maxHeight: '88%',
+  },
+  modalHandle: {
+    width: 40,
+    height: 5,
+    borderRadius: 2.5,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 20,
   },
   modalTitle: {
     fontSize: 22,
     fontWeight: '700',
-    marginBottom: 24,
-    color: theme.text,
   },
-  section: {
+  modalSubtitle: {
+    fontSize: 15,
+    marginTop: 4,
     marginBottom: 24,
   },
-  sectionTitle: {
-    fontSize: 16,
+  modalSectionLabel: {
+    fontSize: 12,
     fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
     marginBottom: 12,
-    color: theme.text,
   },
   timeScroll: {
-    flexGrow: 0,
+    marginBottom: 24,
   },
-  timeChip: {
+  timeOption: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: theme.inputBackground,
+    borderRadius: 12,
+    borderWidth: 1,
     marginRight: 8,
   },
-  timeChipSelected: {
-    backgroundColor: theme.buttonPrimary,
+  timeOptionText: {
+    fontSize: 15,
+    fontWeight: '500',
   },
-  timeChipText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme.text,
-  },
-  timeChipTextSelected: {
-    color: '#fff',
+  dosageContainer: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 24,
   },
   dosageInput: {
-    borderWidth: 1,
-    borderColor: theme.inputBorder,
+    flex: 1,
     borderRadius: 12,
-    paddingHorizontal: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
     paddingVertical: 12,
-    fontSize: 15,
-    color: theme.text,
-    backgroundColor: theme.inputBackground,
-  },
-  dosageRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  dosageAmountInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: theme.inputBorder,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    backgroundColor: theme.inputBackground,
-    color: theme.text,
-    height: 44,
-  },
-  unitDropdown: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: theme.inputBorder,
-    borderRadius: 8,
-    backgroundColor: theme.inputBackground,
-    height: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-  },
-  unitDropdownText: {
-    fontSize: 15,
-    color: theme.text,
-  },
-  unitDropdownIcon: {
-    fontSize: 10,
-    color: theme.textMuted,
-  },
-  unitModalOverlay: {
-    flex: 1,
-    backgroundColor: theme.modalOverlay,
-    justifyContent: 'flex-end',
-  },
-  unitModalContent: {
-    backgroundColor: theme.background,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '50%',
-  },
-  unitModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.borderLight,
-  },
-  unitModalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: theme.text,
-  },
-  unitModalClose: {
-    fontSize: 24,
-    color: theme.textMuted,
-  },
-  unitList: {
-    maxHeight: 300,
-  },
-  unitOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.borderLight,
-  },
-  unitOptionSelected: {
-    backgroundColor: theme.inputBackground,
-  },
-  unitOptionText: {
     fontSize: 16,
-    color: theme.text,
   },
-  unitOptionTextSelected: {
-    fontWeight: '600',
-    color: theme.buttonPrimary,
-  },
-  unitCheckmark: {
-    fontSize: 18,
-    color: theme.buttonPrimary,
-    fontWeight: '700',
-  },
-  frequencyButtons: {
+  unitSelector: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  frequencyButton: {
+  unitSelectorText: {
+    fontSize: 16,
+  },
+  unitSelectorArrow: {
+    fontSize: 20,
+    fontWeight: '300',
+  },
+  frequencyContainer: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 24,
+  },
+  frequencyOption: {
     flex: 1,
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: theme.inputBackground,
+    borderWidth: 1,
     alignItems: 'center',
   },
-  frequencyButtonSelected: {
-    backgroundColor: theme.buttonPrimary,
-  },
-  frequencyButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme.text,
-  },
-  frequencyButtonTextSelected: {
-    color: '#fff',
+  frequencyOptionText: {
+    fontSize: 15,
+    fontWeight: '500',
   },
   daysContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    justifyContent: 'space-between',
+    marginBottom: 24,
   },
-  dayChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+  dayOption: {
+    width: 40,
+    height: 40,
     borderRadius: 20,
-    backgroundColor: theme.inputBackground,
-    minWidth: 48,
-    alignItems: 'center',
-  },
-  dayChipSelected: {
-    backgroundColor: theme.buttonSecondary,
-  },
-  dayChipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: theme.text,
-  },
-  dayChipTextSelected: {
-    color: '#fff',
-  },
-  weekdaysButton: {
-    marginTop: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: theme.inputBackground,
-    alignItems: 'center',
     borderWidth: 1,
-    borderColor: theme.buttonPrimary,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  weekdaysButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: theme.buttonPrimary,
+  dayOptionText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   modalActions: {
     flexDirection: 'row',
     gap: 12,
     marginTop: 8,
   },
-  cancelButton: {
+  modalCancelButton: {
     flex: 1,
     paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: theme.inputBackground,
+    borderRadius: 14,
+    borderWidth: 1,
     alignItems: 'center',
   },
-  cancelButtonText: {
+  modalCancelText: {
     fontSize: 16,
     fontWeight: '600',
-    color: theme.text,
   },
-  confirmButton: {
+  modalConfirmButton: {
     flex: 1,
     paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: theme.buttonPrimary,
+    borderRadius: 14,
     alignItems: 'center',
   },
-  confirmButtonDisabled: {
-    backgroundColor: theme.buttonDisabled,
-  },
-  confirmButtonText: {
+  modalConfirmText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#fff',
+    color: '#FFFFFF',
   },
-  // History Modal styles
-  historyModalOverlay: {
+
+  // Unit Picker
+  unitPickerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-end',
+  },
+  unitPickerBackdrop: {
     flex: 1,
-    backgroundColor: theme.modalOverlay,
-    justifyContent: 'flex-start',
-    paddingTop: 60,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
-  historyModalContainer: {
-    backgroundColor: theme.background,
+  unitPickerContainer: {
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '80%',
+    maxHeight: '50%',
+  },
+  unitPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  unitPickerTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  unitPickerDone: {
+    fontSize: 17,
+    fontWeight: '500',
+  },
+  unitPickerOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+  },
+  unitPickerOptionText: {
+    fontSize: 16,
+  },
+
+  // History Modal
+  historyModalContainer: {
     flex: 1,
+    paddingTop: 54,
   },
   historyModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: theme.borderLight,
   },
   historyModalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: theme.text,
-  },
-  historyCloseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: theme.inputBackground,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  historyCloseButtonText: {
-    fontSize: 20,
-    color: theme.textMuted,
+    fontSize: 18,
     fontWeight: '600',
   },
-  historyList: {
+  historyModalCloseBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  historyModalCloseText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  historyListContent: {
     padding: 16,
   },
   historyCard: {
-    backgroundColor: theme.cardBackground,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: theme.cardBorder,
-    position: 'relative',
+    padding: 14,
+    marginBottom: 10,
   },
-  historyCardContent: {
+  historyContent: {
     flexDirection: 'row',
+    alignItems: 'center',
   },
-  historyThumbnail: {
-    width: 50,
-    height: 50,
-    borderRadius: 8,
-    backgroundColor: theme.inputBackground,
+  historyImageBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  historyImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  historyPlaceholder: {
+    fontSize: 24,
   },
   historyInfo: {
     flex: 1,
     marginLeft: 12,
-    justifyContent: 'center',
   },
   historyName: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
-    marginBottom: 2,
-    paddingRight: 50,
-    color: theme.text,
   },
   historyBrand: {
-    fontSize: 12,
-    color: theme.textMuted,
-    marginBottom: 2,
-  },
-  historyDate: {
-    fontSize: 11,
-    color: theme.textLight,
-  },
-  addToStackButton: {
-    backgroundColor: theme.buttonSecondary,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    flex: 1,
-  },
-  addToStackButtonDisabled: {
-    backgroundColor: theme.borderLight,
-  },
-  addToStackButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  addToStackButtonTextDisabled: {
-    color: theme.textMuted,
-  },
-  historyEmptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  historyEmptyText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.textSecondary,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  historyEmptySubtext: {
     fontSize: 13,
-    color: theme.textMuted,
-    textAlign: 'center',
+    marginTop: 2,
   },
-  deleteAction: {
-    backgroundColor: theme.buttonDanger,
+  historyRating: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
-    alignItems: 'flex-end',
-    paddingHorizontal: 20,
-    marginBottom: 8,
-    borderTopRightRadius: 12,
-    borderBottomRightRadius: 12,
-  },
-  deleteActionText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  addToStackAction: {
-    backgroundColor: theme.buttonSecondary,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    paddingHorizontal: 20,
-    marginBottom: 8,
-    borderTopLeftRadius: 12,
-    borderBottomLeftRadius: 12,
-  },
-  addToStackActionDisabled: {
-    backgroundColor: theme.borderLight,
-  },
-  addToStackActionText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  addToStackActionTextDisabled: {
-    color: theme.textMuted,
-  },
-  // Dosage inline inputs
-  dosageRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  dosageAmountInput: {
-    flex: 1,
-    backgroundColor: theme.inputBackground,
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    color: theme.text,
-    borderWidth: 1,
-    borderColor: theme.borderLight,
-  },
-  unitDropdown: {
-    backgroundColor: theme.inputBackground,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderWidth: 1,
-    borderColor: theme.borderLight,
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    minWidth: 120,
-    justifyContent: 'space-between',
   },
-  unitDropdownText: {
-    fontSize: 16,
-    color: theme.text,
+  historyRatingText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  historyAnalysis: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 10,
+  },
+  swipeAction: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 70,
+    marginBottom: 10,
+    borderRadius: 16,
+  },
+  swipeActionText: {
+    color: '#FFFFFF',
+    fontSize: 20,
     fontWeight: '500',
-  },
-  unitDropdownIcon: {
-    fontSize: 12,
-    color: theme.textMuted,
-  },
-  // Unit Picker Modal
-  unitModalOverlay: {
-    flex: 1,
-    backgroundColor: theme.modalOverlay,
-    justifyContent: 'flex-end',
-  },
-  unitModalContent: {
-    backgroundColor: theme.cardBackground,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '60%',
-  },
-  unitModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.borderLight,
-  },
-  unitModalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: theme.text,
-  },
-  unitModalClose: {
-    fontSize: 28,
-    color: theme.textMuted,
-    fontWeight: '300',
-  },
-  unitList: {
-    maxHeight: 400,
-  },
-  unitOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.borderLight,
-  },
-  unitOptionSelected: {
-    backgroundColor: theme.buttonPrimary + '15',
-  },
-  unitOptionText: {
-    fontSize: 16,
-    color: theme.text,
-  },
-  unitOptionTextSelected: {
-    color: theme.buttonPrimary,
-    fontWeight: '600',
-  },
-  unitCheckmark: {
-    fontSize: 20,
-    color: theme.buttonPrimary,
-    fontWeight: '700',
   },
 });

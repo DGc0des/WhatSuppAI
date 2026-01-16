@@ -5,7 +5,7 @@ import 'react-native-reanimated';
 import { useEffect, useState, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ColorSchemeProvider, useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/supabase-client';
 import { snoozeNotification } from '@/lib/notificationService';
 import { markSupplementAsTaken } from '@/lib/scheduleStorage';
@@ -15,6 +15,14 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
+  return (
+    <ColorSchemeProvider>
+      <RootLayoutContent />
+    </ColorSchemeProvider>
+  );
+}
+
+function RootLayoutContent() {
   const colorScheme = useColorScheme();
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const router = useRouter();

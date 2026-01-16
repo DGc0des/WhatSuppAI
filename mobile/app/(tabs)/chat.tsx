@@ -72,14 +72,7 @@ export default function ChatScreen() {
   const theme = Colors[colorScheme ?? 'light'];
   const styles = createStyles(theme);
 
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'system',
-      content: 'Hello! I\'m your supplement expert. I can help you with:\n\n• Information about supplements and vitamins\n• Schedule your scanned supplements\n• Mark supplements as taken or not taken\n• Update dosage for your schedules\n• Delete schedules\n• Optimize your supplement routine\n• Answer questions about dosage and timing\n\nHow can I help you today?',
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [scannedSupplements, setScannedSupplements] = useState<Supplement[]>([]);
@@ -240,6 +233,75 @@ export default function ChatScreen() {
   };
 
 
+  // ===== SECURITY: Jailbreak Detection Patterns =====
+  const JAILBREAK_PATTERNS = [
+    // Direct instruction override attempts
+    /ignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?|guidelines?)/i,
+    /disregard\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?|guidelines?)/i,
+    /forget\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?|guidelines?)/i,
+    /override\s+(all\s+)?(previous|prior|system)\s+(instructions?|prompts?|rules?)/i,
+
+    // Role manipulation
+    /you\s+are\s+now\s+(a|an|the)\s+(?!supplement|nutrition|health)/i,
+    /act\s+as\s+(a|an|the)\s+(?!supplement|nutrition|health)/i,
+    /pretend\s+(to\s+be|you\'?re)\s+(a|an|the)\s+(?!supplement|nutrition|health)/i,
+    /roleplay\s+as/i,
+    /from\s+now\s+on\s+you\s+(are|will\s+be)/i,
+
+    // DAN and jailbreak variants
+    /\bdan\b.*\bmode\b/i,
+    /\bjailbreak\b/i,
+    /\bdeveloper\s+mode\b/i,
+    /\bgod\s+mode\b/i,
+    /\bunrestricted\s+mode\b/i,
+    /\bno\s+filter\b/i,
+    /\bremove\s+(all\s+)?restrictions?\b/i,
+
+    // System prompt extraction
+    /what\s+(is|are)\s+your\s+(system\s+)?prompt/i,
+    /show\s+(me\s+)?your\s+(system\s+)?prompt/i,
+    /reveal\s+(your\s+)?(system\s+)?instructions/i,
+    /what\s+were\s+you\s+told/i,
+    /print\s+(your\s+)?(system\s+)?prompt/i,
+
+    // Delimiter injection
+    /\[\s*system\s*\]/i,
+    /\[\s*assistant\s*\]/i,
+    /\<\s*system\s*\>/i,
+    /```system/i,
+
+    // Hypothetical bypass
+    /hypothetically.*if\s+you\s+(could|were|didn\'t\s+have)/i,
+    /imagine\s+you\s+(have\s+no|don\'t\s+have|are\s+free)/i,
+    /let\'?s\s+play\s+a\s+game\s+where\s+you/i,
+  ];
+
+  const OFF_TOPIC_PATTERNS = [
+    /write\s+(me\s+)?(a|an|some)\s+(code|script|program|essay|story|poem)/i,
+    /help\s+me\s+(hack|crack|break\s+into)/i,
+    /how\s+to\s+(make|create|build)\s+(a\s+)?(bomb|weapon|drug|virus|malware)/i,
+    /illegal\s+(drugs?|substances?|activities?)/i,
+  ];
+
+  const detectJailbreakAttempt = (text: string): { isJailbreak: boolean; reason: string | null } => {
+    for (const pattern of JAILBREAK_PATTERNS) {
+      if (pattern.test(text)) {
+        return { isJailbreak: true, reason: 'prompt_injection_detected' };
+      }
+    }
+    for (const pattern of OFF_TOPIC_PATTERNS) {
+      if (pattern.test(text)) {
+        return { isJailbreak: true, reason: 'harmful_content_detected' };
+      }
+    }
+    // Check for suspicious encoding
+    const suspiciousChars = (text.match(/[^\x20-\x7E\n\r\t]/g) || []).length;
+    if (suspiciousChars > text.length * 0.3) {
+      return { isJailbreak: true, reason: 'suspicious_encoding_detected' };
+    }
+    return { isJailbreak: false, reason: null };
+  };
+
   // Input sanitization function
   const sanitizeInput = (input: string): string => {
     let sanitized = input.trim();
@@ -248,6 +310,9 @@ export default function ChatScreen() {
     sanitized = sanitized
       .replace(/\[SCHEDULE_ACTION\]/gi, '') // Remove action markers
       .replace(/\[END_ACTION\]/gi, '')
+      .replace(/\[MARK_TAKEN_ACTION\]/gi, '')
+      .replace(/\[UPDATE_DOSAGE_ACTION\]/gi, '')
+      .replace(/\[DELETE_SCHEDULE_ACTION\]/gi, '')
       .replace(/[<>]/g, '') // Remove HTML-like tags
       .replace(/[\\\r\n\t]/g, ' ') // Replace special whitespace with space
       .replace(/["'`]/g, '') // Remove quotes that could break string literals
@@ -261,11 +326,11 @@ export default function ChatScreen() {
     return sanitized;
   };
 
-  const handleSend = async () => {
-    if (!inputText.trim() || loading) return;
+  const sendMessage = async (content: string) => {
+    if (!content.trim() || loading) return;
 
     // Sanitize user input
-    const sanitizedContent = sanitizeInput(inputText);
+    const sanitizedContent = sanitizeInput(content);
 
     // Validate sanitized input
     if (sanitizedContent.length === 0) {
@@ -275,6 +340,28 @@ export default function ChatScreen() {
 
     if (sanitizedContent.length < 3) {
       Alert.alert('Too Short', 'Please enter at least 3 characters');
+      return;
+    }
+
+    // ===== SECURITY CHECK: Client-side jailbreak detection =====
+    const jailbreakCheck = detectJailbreakAttempt(sanitizedContent);
+    if (jailbreakCheck.isJailbreak) {
+      console.warn('[Chat] Jailbreak attempt blocked:', jailbreakCheck.reason);
+      // Show a friendly redirect message without making API call
+      const blockedMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: sanitizedContent,
+        timestamp: new Date(),
+      };
+      const redirectMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: "I'm your supplement assistant and can only help with nutrition and supplement questions. How can I assist with your wellness routine?",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, blockedMessage, redirectMessage]);
+      setInputText('');
       return;
     }
 
@@ -560,6 +647,15 @@ Provide your expert advice:`;
     }
   };
 
+  const handleSend = async () => {
+    await sendMessage(inputText);
+  };
+
+  const handleAnalyzeRecent = async (supplement: Supplement) => {
+    const prompt = `Analyze my recent scan: ${supplement.name}${supplement.brand ? ` by ${supplement.brand}` : ''}. Provide extended insights beyond the scan result, including benefits, evidence strength, safety notes, interactions, and ideal timing. Keep it concise.`;
+    await sendMessage(prompt);
+  };
+
   const renderMessage = ({ item }: { item: Message }) => {
     if (item.role === 'system') {
       return (
@@ -673,6 +769,35 @@ Provide your expert advice:`;
         renderItem={renderMessage}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.messagesList}
+        ListHeaderComponent={() => {
+          const recentScan = scannedSupplements[0];
+          return (
+            <View style={styles.recentCard}>
+              <Text style={styles.recentTitle}>Recent Scan</Text>
+              {recentScan ? (
+                <>
+                  <Text style={styles.recentName} numberOfLines={1}>
+                    {recentScan.name}
+                  </Text>
+                  {recentScan.brand && (
+                    <Text style={styles.recentMeta} numberOfLines={1}>
+                      {recentScan.brand}
+                    </Text>
+                  )}
+                <TouchableOpacity
+                  style={styles.recentPill}
+                  onPress={() => handleAnalyzeRecent(recentScan)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.recentPillText}>Analyze</Text>
+                </TouchableOpacity>
+                </>
+              ) : (
+                <Text style={styles.recentMeta}>No scans yet. Try scanning a supplement.</Text>
+              )}
+            </View>
+          );
+        }}
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
       />
 
@@ -740,6 +865,46 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     flexGrow: 1,
+  },
+  recentCard: {
+    backgroundColor: theme.cardBackground,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 10,
+  },
+  recentTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: theme.textMuted,
+    marginBottom: 6,
+  },
+  recentName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: theme.text,
+    marginBottom: 4,
+  },
+  recentMeta: {
+    fontSize: 13,
+    color: theme.textSecondary,
+    marginBottom: 8,
+  },
+  recentPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.successLight,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  recentPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.success,
   },
   messageContainer: {
     marginVertical: 4,

@@ -15,7 +15,7 @@ import * as ExpoLinking from 'expo-linking';
 import { supabase } from '../../supabase-client';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useColorSchemePreference } from '@/hooks/use-color-scheme';
 import * as Notifications from 'expo-notifications';
 
 interface UserProfile {
@@ -27,7 +27,7 @@ interface UserProfile {
 }
 
 export default function SettingsScreen() {
-  const colorScheme = useColorScheme();
+  const { colorScheme, mode, setMode } = useColorSchemePreference();
   const colors = Colors[colorScheme ?? 'light'];
 
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -322,9 +322,16 @@ export default function SettingsScreen() {
             <IconSymbol name="moon.fill" size={20} color={colors.textSecondary} />
             <Text style={[styles.settingLabel, { color: colors.text }]}>Dark Mode</Text>
           </View>
-          <Text style={[styles.settingValue, { color: colors.textSecondary }]}>
-            System ({colorScheme === 'dark' ? 'Dark' : 'Light'})
-          </Text>
+          <View style={styles.settingRight}>
+            <Text style={[styles.settingValue, { color: colors.textSecondary }]}>
+              {mode === 'system' ? 'System' : colorScheme === 'dark' ? 'Dark' : 'Light'}
+            </Text>
+            <Switch
+              value={colorScheme === 'dark'}
+              onValueChange={(value) => setMode(value ? 'dark' : 'light')}
+              trackColor={{ false: colors.border, true: colors.tint }}
+            />
+          </View>
         </View>
 
         <View style={styles.settingItem}>
@@ -495,6 +502,11 @@ const styles = StyleSheet.create({
   },
   settingValue: {
     fontSize: 16,
+  },
+  settingRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   nameEditContainer: {
     flexDirection: 'row',

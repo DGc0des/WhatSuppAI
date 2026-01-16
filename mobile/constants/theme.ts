@@ -5,117 +5,117 @@
 
 import { Platform } from 'react-native';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+const tintColorLight = '#0F4B2E';
+const tintColorDark = '#7D8B6A';
 
 export const Colors = {
   light: {
     // Basic colors
-    text: '#11181C',
-    background: '#fff',
+    text: '#1F241F',
+    background: '#F6F2E8',
     tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
+    icon: '#6F776B',
+    tabIconDefault: '#91988E',
     tabIconSelected: tintColorLight,
 
     // UI element colors
-    cardBackground: '#f9f9f9',
-    cardBorder: '#ddd',
+    cardBackground: '#FBF8F0',
+    cardBorder: '#E4DDCF',
 
     // Input colors
-    inputBackground: '#f8f9fa',
-    inputBorder: '#dee2e6',
-    inputPlaceholder: '#6c757d',
+    inputBackground: '#F1EBDD',
+    inputBorder: '#E4DDCF',
+    inputPlaceholder: '#91988E',
 
     // Button colors
-    buttonPrimary: '#007AFF',
-    buttonSecondary: '#28a745',
-    buttonDanger: '#dc3545',
-    buttonWarning: '#ffc107',
-    buttonDisabled: '#ccc',
+    buttonPrimary: '#0F4B2E',
+    buttonSecondary: '#9B8A67',
+    buttonDanger: '#B5635A',
+    buttonWarning: '#B5A048',
+    buttonDisabled: '#CFC7B9',
 
     // Text variants
-    textSecondary: '#555',
-    textMuted: '#6c757d',
-    textLight: '#777',
+    textSecondary: '#6F776B',
+    textMuted: '#91988E',
+    textLight: '#A7ADA4',
 
     // Border colors
-    border: '#dee2e6',
-    borderLight: '#e9ecef',
+    border: '#E4DDCF',
+    borderLight: '#F1EBDD',
 
     // Status colors
-    success: '#28a745',
-    successLight: '#e7f5e7',
-    error: '#dc3545',
-    warning: '#ffc107',
-    info: '#007AFF',
+    success: '#0F4B2E',
+    successLight: '#E4EFE6',
+    error: '#B5635A',
+    warning: '#B5A048',
+    info: '#0F4B2E',
 
     // Modal/Overlay
     modalOverlay: 'rgba(0, 0, 0, 0.5)',
 
     // Calendar specific
-    calendarDot: '#007AFF',
-    calendarSelected: '#007AFF',
+    calendarDot: '#0F4B2E',
+    calendarSelected: '#0F4B2E',
 
     // Score colors
-    scoreExcellent: '#28a745',
-    scoreGood: '#ffc107',
-    scoreFair: '#fd7e14',
-    scorePoor: '#dc3545',
+    scoreExcellent: '#0F4B2E',
+    scoreGood: '#B5A048',
+    scoreFair: '#C4883A',
+    scorePoor: '#B5635A',
   },
   dark: {
     // Basic colors
-    text: '#ECEDEE',
-    background: '#151718',
+    text: '#F0EDE6',
+    background: '#1A1915',
     tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
+    icon: '#A8A49C',
+    tabIconDefault: '#706C65',
     tabIconSelected: tintColorDark,
 
     // UI element colors
-    cardBackground: '#1E1E1E',
-    cardBorder: '#2C2C2C',
+    cardBackground: '#252320',
+    cardBorder: '#3A3632',
 
     // Input colors
-    inputBackground: '#2C2C2C',
-    inputBorder: '#3C3C3C',
-    inputPlaceholder: '#8E8E93',
+    inputBackground: '#2D2A26',
+    inputBorder: '#3A3632',
+    inputPlaceholder: '#706C65',
 
     // Button colors
-    buttonPrimary: '#0A84FF',
-    buttonSecondary: '#32D74B',
-    buttonDanger: '#FF453A',
-    buttonWarning: '#FFD60A',
-    buttonDisabled: '#3C3C3C',
+    buttonPrimary: '#7D8B6A',
+    buttonSecondary: '#A68B6A',
+    buttonDanger: '#B5635A',
+    buttonWarning: '#B5A048',
+    buttonDisabled: '#3A3632',
 
     // Text variants
-    textSecondary: '#AEAEB2',
-    textMuted: '#8E8E93',
-    textLight: '#636366',
+    textSecondary: '#A8A49C',
+    textMuted: '#706C65',
+    textLight: '#5B5650',
 
     // Border colors
-    border: '#3C3C3C',
-    borderLight: '#2C2C2C',
+    border: '#3A3632',
+    borderLight: '#2F2C28',
 
     // Status colors
-    success: '#32D74B',
-    successLight: '#1E3A1E',
-    error: '#FF453A',
-    warning: '#FFD60A',
-    info: '#0A84FF',
+    success: '#7D8B6A',
+    successLight: '#2D3328',
+    error: '#B5635A',
+    warning: '#B5A048',
+    info: '#7D8B6A',
 
     // Modal/Overlay
     modalOverlay: 'rgba(0, 0, 0, 0.75)',
 
     // Calendar specific
-    calendarDot: '#0A84FF',
-    calendarSelected: '#0A84FF',
+    calendarDot: '#7D8B6A',
+    calendarSelected: '#7D8B6A',
 
     // Score colors
-    scoreExcellent: '#32D74B',
-    scoreGood: '#FFD60A',
-    scoreFair: '#FF9F0A',
-    scorePoor: '#FF453A',
+    scoreExcellent: '#7D8B6A',
+    scoreGood: '#B5A048',
+    scoreFair: '#C4883A',
+    scorePoor: '#B5635A',
   },
 };
 
